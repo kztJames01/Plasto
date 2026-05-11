@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: plasto-api
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:5432/plasto?sslmode=prefer}
+    username: ${DATABASE_USER:plasto}
+    password: ${DATABASE_PASSWORD:plasto}
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

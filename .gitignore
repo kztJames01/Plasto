@@ -1,0 +1,24 @@
+.DS_Store
+.env
+**/local.properties
+
+# Java / Gradle
+backend/build/
+backend/.gradle/
+backend/*.iml
+
+# Node / React Native
+mobile/node_modules/
+mobile/ios/Pods/
+mobile/ios/build/
+mobile/android/build/
+mobile/android/app/build/
+mobile/.metro-health-check*
+mobile/coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+Documents/
