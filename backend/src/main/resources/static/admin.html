@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plasto Admin - Operator Certificates</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #1a1a1a; }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            margin-bottom: 16px;
+            font-family: monospace;
+        }
+        button {
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .result {
+            background: #f0f8ff;
+            border-left: 4px solid #007AFF;
+            padding: 16px;
+            margin-top: 16px;
+            border-radius: 4px;
+            display: none;
+        }
+        .error {
+            background: #fff0f0;
+            border-left-color: #ff4444;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin: 0;
+            font-size: 13px;
+        }
+        .help {
+            color: #666;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Plasto Admin Portal</h1>
+
+    <div class="card">
+        <h2>Issue Operator Certificate</h2>
+        <p class="help">Sign an operator device with a spending float limit.</p>
+
+        <label for="operatorPubkey">Operator Public Key (base58)</label>
+        <input type="text" id="operatorPubkey" placeholder="e.g., 7xKj9LmN...">
+
+        <label for="plantId">Plant ID</label>
+        <input type="text" id="plantId" placeholder="e.g., plant-yangon-north">
+
+        <label for="floatCap">Float Cap (credits)</label>
+        <input type="number" id="floatCap" placeholder="500000" value="500000">
+
+        <label for="adminPubkey">Admin Public Key (base58)</label>
+        <input type="text" id="adminPubkey" placeholder="Your admin public key">
+
+        <label for="adminSig">Admin Signature (base58)</label>
+        <textarea id="adminSig" rows="3" placeholder="Signature of operator_pubkey + float_cap + plant_id"></textarea>
+
+        <button id="issueBtn" onclick="issueCertificate()">Issue Certificate</button>
+
+        <div id="result" class="result">
+            <pre id="resultText"></pre>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Check Certificate</h2>
+
+        <label for="checkPubkey">Operator Public Key</label>
+        <input type="text" id="checkPubkey" placeholder="Enter operator public key">
+
+        <button onclick="checkCertificate()">Check Status</button>
+
+        <div id="checkResult" class="result">
+            <pre id="checkResultText"></pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/v1';
+
+        async function issueCertificate() {
+            const btn = document.getElementById('issueBtn');
+            const result = document.getElementById('result');
+            const resultText = document.getElementById('resultText');
+
+            const data = {
+                operatorPubkey: document.getElementById('operatorPubkey').value,
+                plantId: document.getElementById('plantId').value,
+                floatCap: parseInt(document.getElementById('floatCap').value),
+                adminPubkey: document.getElementById('adminPubkey').value,
+                adminSig: document.getElementById('adminSig').value
+            };
+
+            btn.disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/certificates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const json = await res.json();
+                result.style.display = 'block';
+                result.classList.toggle('error', !res.ok);
+                resultText.textContent = JSON.stringify(json, null, 2);
+            } catch (err) {
+                result.style.display = 'block';
+                result.classList.add('error');
+                resultText.textContent = 'Error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function checkCertificate() {
+            const pubkey = document.getElementById('checkPubkey').value;
+            const result = document.getElementById('checkResult');
+            const resultText = document.getElementById('checkResultText');
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/certificates/${encodeURIComponent(pubkey)}`);
+                const json = await res.json();
+                result.style.display = 'block';
+                result.classList.toggle('error', !res.ok);
+                resultText.textContent = JSON.stringify(json, null, 2);
+            } catch (err) {
+                result.style.display = 'block';
+                result.classList.add('error');
+                resultText.textContent = 'Error: ' + err.message;
+            }
+        }
+    </script>
+</body>
+</html>
