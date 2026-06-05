@@ -8,6 +8,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -28,6 +29,12 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiErrorBody> badRequest(IllegalArgumentException ex) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
 			.body(new ApiErrorBody("BAD_REQUEST", ex.getMessage(), null));
+	}
+
+	@ExceptionHandler(ResponseStatusException.class)
+	public ResponseEntity<ApiErrorBody> responseStatus(ResponseStatusException ex) {
+		return ResponseEntity.status(ex.getStatusCode())
+			.body(new ApiErrorBody("HTTP_ERROR", ex.getReason(), null));
 	}
 
 	@ExceptionHandler(Exception.class)

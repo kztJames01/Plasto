@@ -1,0 +1,163 @@
+package com.plasto.api.crypto;
+
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Arrays;
+import java.util.Base64;
+
+import org.springframework.stereotype.Component;
+
+@Component
+public class SignatureVerifier {
+
+	private static final byte[] ED25519_X509_PREFIX = hexToBytes("302a300506032b6570032100");
+	private static final String BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+	public boolean verify(String publicKeyText, String signatureText, String message) {
+		try {
+			byte[] publicKeyBytes = decodeFlexible(publicKeyText);
+			byte[] signatureBytes = decodeFlexible(signatureText);
+			if (publicKeyBytes.length == 32) {
+				publicKeyBytes = wrapRawEd25519PublicKey(publicKeyBytes);
+			}
+			if (signatureBytes.length != 64) {
+				return false;
+			}
+
+			KeyFactory keyFactory = KeyFactory.getInstance("Ed25519");
+			PublicKey publicKey = keyFactory.generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+			Signature verifier = Signature.getInstance("Ed25519");
+			verifier.initVerify(publicKey);
+			verifier.update(message.getBytes(StandardCharsets.UTF_8));
+			return verifier.verify(signatureBytes);
+		} catch (Exception ex) {
+			return false;
+		}
+	}
+
+	private static byte[] decodeFlexible(String value) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException("empty encoded value");
+		}
+		String text = value.trim();
+		String lower = text.toLowerCase();
+		if (lower.startsWith("base64:")) {
+			return Base64.getDecoder().decode(text.substring(7));
+		}
+		if (lower.startsWith("base64url:")) {
+			return Base64.getUrlDecoder().decode(text.substring(10));
+		}
+		if (lower.startsWith("hex:")) {
+			return hexToBytes(text.substring(4));
+		}
+		if (lower.startsWith("base58:")) {
+			return decodeBase58(text.substring(7));
+		}
+
+		if (text.matches("[0-9a-fA-F]+") && text.length() % 2 == 0) {
+			return hexToBytes(text);
+		}
+		if (looksLikeBase64(text)) {
+			byte[] decoded = tryBase64(text);
+			if (decoded != null) {
+				return decoded;
+			}
+		}
+		byte[] base58 = tryBase58(text);
+		if (base58 != null) {
+			return base58;
+		}
+		byte[] base64Url = tryBase64Url(text);
+		if (base64Url != null) {
+			return base64Url;
+		}
+		byte[] base64 = tryBase64(text);
+		if (base64 != null) {
+			return base64;
+		}
+		throw new IllegalArgumentException("unsupported key/signature encoding");
+	}
+
+	private static boolean looksLikeBase64(String text) {
+		return text.indexOf('=') >= 0 || text.indexOf('+') >= 0 || text.indexOf('/') >= 0;
+	}
+
+	private static byte[] tryBase64(String text) {
+		try {
+			return Base64.getDecoder().decode(text);
+		} catch (IllegalArgumentException ex) {
+			return null;
+		}
+	}
+
+	private static byte[] tryBase64Url(String text) {
+		try {
+			return Base64.getUrlDecoder().decode(text);
+		} catch (IllegalArgumentException ex) {
+			return null;
+		}
+	}
+
+	private static byte[] tryHex(String text) {
+		try {
+			return hexToBytes(text);
+		} catch (IllegalArgumentException ex) {
+			return null;
+		}
+	}
+
+	private static byte[] tryBase58(String text) {
+		try {
+			return decodeBase58(text);
+		} catch (IllegalArgumentException ex) {
+			return null;
+		}
+	}
+
+	private static byte[] wrapRawEd25519PublicKey(byte[] rawKey) {
+		byte[] wrapped = new byte[ED25519_X509_PREFIX.length + rawKey.length];
+		System.arraycopy(ED25519_X509_PREFIX, 0, wrapped, 0, ED25519_X509_PREFIX.length);
+		System.arraycopy(rawKey, 0, wrapped, ED25519_X509_PREFIX.length, rawKey.length);
+		return wrapped;
+	}
+
+	private static byte[] hexToBytes(String text) {
+		String normalized = text.trim();
+		if (normalized.length() % 2 != 0 || !normalized.matches("[0-9a-fA-F]+")) {
+			throw new IllegalArgumentException("invalid hex");
+		}
+		byte[] out = new byte[normalized.length() / 2];
+		for (int i = 0; i < out.length; i++) {
+			int idx = i * 2;
+			out[i] = (byte) Integer.parseInt(normalized.substring(idx, idx + 2), 16);
+		}
+		return out;
+	}
+
+	private static byte[] decodeBase58(String text) {
+		BigInteger num = BigInteger.ZERO;
+		for (char ch : text.toCharArray()) {
+			int digit = BASE58_ALPHABET.indexOf(ch);
+			if (digit < 0) {
+				throw new IllegalArgumentException("invalid base58");
+			}
+			num = num.multiply(BigInteger.valueOf(58)).add(BigInteger.valueOf(digit));
+		}
+		byte[] bytes = num.toByteArray();
+		if (bytes.length > 0 && bytes[0] == 0) {
+			bytes = Arrays.copyOfRange(bytes, 1, bytes.length);
+		}
+		int leadingZeros = 0;
+		while (leadingZeros < text.length() && text.charAt(leadingZeros) == '1') {
+			leadingZeros++;
+		}
+		byte[] out = new byte[leadingZeros + bytes.length];
+		System.arraycopy(bytes, 0, out, leadingZeros, bytes.length);
+		return out;
+	}
+
+}
