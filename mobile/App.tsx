@@ -16,12 +16,14 @@ import { EventStore } from './src/services/EventStore';
 import { KeychainService } from './src/services/KeychainService';
 import { CryptoService } from './src/services/CryptoService';
 import { OperatorService } from './src/services/OperatorService';
+import { HashChainService } from './src/services/HashChainService';
+import { BalanceService } from './src/services/BalanceService';
 import { Identity } from './src/types/identity';
 
-import { QRDisplay } from './src/components/QRDisplay';
 import { MnemonicScreen } from './src/screens/MnemonicScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { OperatorRegisterScreen } from './src/screens/OperatorRegisterScreen';
+import { HomeScreen } from './src/screens/HomeScreen';
 
 type AppState =
   | { type: 'loading' }
@@ -36,6 +38,14 @@ type AppState =
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
   const [state, setState] = useState<AppState>({ type: 'loading' });
+
+  const runStartupChecks = useCallback(async (customerPubkey: string) => {
+    // Startup check is async so the app opens without waiting.
+    const chainResult = await HashChainService.validateChain(customerPubkey);
+    if (chainResult.valid) {
+      await BalanceService.recalculate(customerPubkey);
+    }
+  }, []);
 
   const boot = useCallback(async () => {
     await getDatabase();
@@ -57,6 +67,10 @@ function App() {
     }
 
     if (role === 'customer' && ck) {
+      const customerPubkey = CryptoService.encodePublicKeyBase58(
+        Buffer.from(ck.publicKey, 'base64'),
+      );
+      runStartupChecks(customerPubkey).catch(() => undefined);
       setState({
         type: 'home',
         identity: {
@@ -74,7 +88,7 @@ function App() {
     }
 
     setState({ type: 'welcome' });
-  }, []);
+  }, [runStartupChecks]);
 
   useEffect(() => {
     void boot();
@@ -82,6 +96,8 @@ function App() {
 
   const handleIdentityComplete = async (identity: Identity) => {
     await EventStore.setAppRole('customer');
+    const customerPubkey = CryptoService.encodePublicKeyBase58(identity.publicKey);
+    runStartupChecks(customerPubkey).catch(() => undefined);
     setState({ type: 'home', identity });
   };
 
@@ -164,13 +180,7 @@ function App() {
         );
 
       case 'home': {
-        const pk = CryptoService.encodePublicKeyBase58(state.identity.publicKey);
-        return (
-          <View style={styles.homeContainer}>
-            <Text style={styles.homeTitle}>Your wallet</Text>
-            <QRDisplay publicKeyBase58={pk} />
-          </View>
-        );
+        return <HomeScreen identity={state.identity} />;
       }
 
       case 'operator_home':

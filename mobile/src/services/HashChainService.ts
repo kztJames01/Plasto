@@ -1,4 +1,20 @@
 import { sha256 } from 'js-sha256';
+import { getDatabase } from '../database/Database';
+
+type ChainRow = {
+  event_id: string;
+  event_hash: string;
+  previous_hash: string | null;
+  event_type: string;
+  payload_json: string;
+  created_at_local: number;
+};
+
+type ChainValidationResult = {
+  valid: boolean;
+  brokenEventId?: string;
+  reason?: string;
+};
 
 export class HashChainService {
   static computeHash(
@@ -8,37 +24,51 @@ export class HashChainService {
     createdAtLocal: number,
   ): string {
     const prev = previousHash ?? '';
+    // Hash payload + linkage fields so any tampering breaks all following events.
     const s = `${eventType}${payloadJson}${prev}${createdAtLocal}`;
     return sha256(s);
   }
 
-  static validateChain(
-    events: Array<{
-      eventHash: string;
-      previousHash: string | null;
-      eventType: string;
-      payload_json: string;
-      created_at_local: number;
-    }>,
-  ): boolean {
-    for (let i = 0; i < events.length; i++) {
-      const ev = events[i];
+  static async validateChain(pubkey: string): Promise<ChainValidationResult> {
+    const db = await getDatabase();
+    const rows = db.execute(
+      `SELECT event_id, event_hash, previous_hash, event_type, payload_json, created_at_local
+       FROM events
+       WHERE customer_pubkey = ?
+       ORDER BY created_at_local ASC, event_id ASC`,
+      [pubkey],
+    ).rows?._array as ChainRow[] | undefined;
+
+    return this.validateRows(rows ?? []);
+  }
+
+  private static validateRows(rows: ChainRow[]): ChainValidationResult {
+    for (let i = 0; i < rows.length; i++) {
+      const ev = rows[i];
       const recomputed = this.computeHash(
-        ev.eventType,
+        ev.event_type,
         ev.payload_json,
-        ev.previousHash,
+        ev.previous_hash,
         ev.created_at_local,
       );
-      if (recomputed !== ev.eventHash) {
-        return false;
+      if (recomputed !== ev.event_hash) {
+        return {
+          valid: false,
+          brokenEventId: ev.event_id,
+          reason: 'Event hash does not match payload chain data',
+        };
       }
       if (i > 0) {
-        const prevEv = events[i - 1];
-        if (ev.previousHash !== prevEv.eventHash) {
-          return false;
+        const prevEv = rows[i - 1];
+        if (ev.previous_hash !== prevEv.event_hash) {
+          return {
+            valid: false,
+            brokenEventId: ev.event_id,
+            reason: 'Previous hash link is broken',
+          };
         }
       }
     }
-    return true;
+    return { valid: true };
   }
 }

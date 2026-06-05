@@ -5,6 +5,7 @@ import {
   OperatorCertificate,
 } from '../types/events';
 import { HashChainService } from './HashChainService';
+import { BalanceService } from './BalanceService';
 
 export class EventStore {
   static async setAppRole(role: 'customer' | 'operator'): Promise<void> {
@@ -30,9 +31,21 @@ export class EventStore {
   static async append(event: EventAppendInput): Promise<void> {
     const db = await getDatabase();
 
-    const prevResult = db.execute(
-      'SELECT event_hash FROM events ORDER BY created_at_local DESC LIMIT 1',
-    );
+    const prevResult = event.customerPubkey
+      ? db.execute(
+          `SELECT event_hash
+           FROM events
+           WHERE customer_pubkey = ?
+           ORDER BY created_at_local DESC
+           LIMIT 1`,
+          [event.customerPubkey],
+        )
+      : db.execute(
+          `SELECT event_hash
+           FROM events
+           ORDER BY created_at_local DESC
+           LIMIT 1`,
+        );
     const previousHash = prevResult.rows?._array?.[0]?.event_hash ?? null;
 
     const payloadJson = JSON.stringify(event.payload);
@@ -67,12 +80,10 @@ export class EventStore {
       ],
     );
 
-    await this.updateBalanceCache(
-      event.customerPubkey,
-      event.operatorPubkey,
-      event.eventType,
-      event.payload.credits,
-    );
+    // We recompute from events to avoid drift from partial writes.
+    if (event.customerPubkey) {
+      await BalanceService.recalculate(event.customerPubkey);
+    }
   }
 
   static async getUnsynced(limit: number = 1000): Promise<EventPayload[]> {
@@ -118,43 +129,12 @@ export class EventStore {
   }
 
   static async getBalance(pubkey: string): Promise<number> {
-    const db = await getDatabase();
-    const result = db.execute(
-      `SELECT value FROM user_metadata WHERE key = ?`,
-      [`balance_${pubkey}`],
-    );
-
-    const value = result.rows?._array?.[0]?.value;
-    return value ? parseInt(String(value), 10) : 0;
+    const snapshot = await BalanceService.getSnapshot(pubkey);
+    return snapshot.balance;
   }
 
   static async recalculateBalance(pubkey: string): Promise<number> {
-    const db = await getDatabase();
-    const result = db.execute(
-      `SELECT event_type, payload_json FROM events WHERE customer_pubkey = ?`,
-      [pubkey],
-    );
-
-    let balance = 0;
-    const rows = result.rows?._array ?? [];
-
-    for (const row of rows) {
-      const payload = JSON.parse(row.payload_json as string);
-      const credits = payload.credits ?? 0;
-
-      if (row.event_type === 'DEPOSIT') {
-        balance += credits;
-      } else if (row.event_type === 'REDEEM') {
-        balance -= credits;
-      }
-    }
-
-    db.execute(
-      `INSERT OR REPLACE INTO user_metadata (key, value) VALUES (?, ?)`,
-      [`balance_${pubkey}`, String(balance)],
-    );
-
-    return balance;
+    return BalanceService.recalculate(pubkey);
   }
 
   static async storeOperatorCertificate(cert: OperatorCertificate): Promise<void> {
@@ -251,28 +231,4 @@ export class EventStore {
     };
   }
 
-  private static async updateBalanceCache(
-    customerPubkey: string | null,
-    _operatorPubkey: string,
-    eventType: string,
-    credits: number,
-  ): Promise<void> {
-    if (!customerPubkey) {
-      return;
-    }
-
-    const db = await getDatabase();
-    const currentBalance = await this.getBalance(customerPubkey);
-    let newBalance = currentBalance;
-    if (eventType === 'DEPOSIT') {
-      newBalance += credits;
-    } else if (eventType === 'REDEEM') {
-      newBalance -= credits;
-    }
-
-    db.execute(
-      `INSERT OR REPLACE INTO user_metadata (key, value) VALUES (?, ?)`,
-      [`balance_${customerPubkey}`, String(newBalance)],
-    );
-  }
 }
