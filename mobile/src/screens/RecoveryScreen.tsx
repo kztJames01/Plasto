@@ -23,7 +23,7 @@ interface Props {
 export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
   const [words, setWords] = useState<string[]>(Array(12).fill(''));
   const [loading, setLoading] = useState(false);
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  const [_focusedIndex, setFocusedIndex] = useState(0);
 
   const handleWordChange = (index: number, value: string) => {
     const newWords = [...words];
@@ -76,7 +76,7 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
       await KeychainService.storeMnemonic(mnemonic);
 
       onComplete(identity);
-    } catch (err) {
+    } catch {
       Alert.alert('Recovery failed', 'Invalid recovery phrase. Please check your words.');
     } finally {
       setLoading(false);
