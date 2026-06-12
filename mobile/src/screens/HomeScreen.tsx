@@ -4,6 +4,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 
@@ -16,6 +17,9 @@ const API_BASE = 'http://localhost:8080/api/v1';
 
 type HomeScreenProps = {
   identity: Identity;
+  onReviewProposal: () => void;
+  onRedeem: () => void;
+  onHistory: () => void;
 };
 
 function formatLastUpdated(updatedAt: number | null): string {
@@ -45,7 +49,7 @@ async function tryOnlineSync(pubkey: string): Promise<boolean> {
     // This ping doubles as a lightweight online check.
     const response = await fetch(`${API_BASE}/users/${pubkey}/recover`, {
       method: 'POST',
-      signal: controller.signal,
+      signal: controller.signal as never,
     });
     return response.ok;
   } catch {
@@ -55,7 +59,12 @@ async function tryOnlineSync(pubkey: string): Promise<boolean> {
   }
 }
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ identity }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({
+  identity,
+  onReviewProposal,
+  onRedeem,
+  onHistory,
+}) => {
   const pubkey = useMemo(
     () => CryptoService.encodePublicKeyBase58(identity.publicKey),
     [identity.publicKey],
@@ -116,6 +125,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ identity }) => {
       <View style={styles.qrWrap}>
         <QRDisplay publicKeyBase58={pubkey} />
       </View>
+      <View style={styles.actions}>
+        <TouchableOpacity style={styles.primaryBtn} onPress={onReviewProposal}>
+          <Text style={styles.primaryBtnText}>Sign deposit proposal</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={onRedeem}>
+          <Text style={styles.secondaryBtnText}>Redeem credits</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={onHistory}>
+          <Text style={styles.secondaryBtnText}>History</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 };
@@ -143,4 +163,19 @@ const styles = StyleSheet.create({
   balanceSuffix: { color: '#FFF', fontSize: 18, fontWeight: '600' },
   meta: { color: '#666', fontSize: 14, marginBottom: 4 },
   qrWrap: { width: '100%', marginTop: 18 },
+  actions: { width: '100%', marginTop: 8, gap: 10 },
+  primaryBtn: {
+    backgroundColor: '#0A7AFF',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  primaryBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  secondaryBtn: {
+    backgroundColor: '#FFF',
+    paddingVertical: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  secondaryBtnText: { color: '#0A7AFF', fontSize: 16, fontWeight: '700' },
 });
