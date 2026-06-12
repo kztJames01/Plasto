@@ -15,7 +15,6 @@ import { getDatabase } from './src/database/Database';
 import { EventStore } from './src/services/EventStore';
 import { KeychainService } from './src/services/KeychainService';
 import { CryptoService } from './src/services/CryptoService';
-import { OperatorService } from './src/services/OperatorService';
 import { HashChainService } from './src/services/HashChainService';
 import { BalanceService } from './src/services/BalanceService';
 import { Identity } from './src/types/identity';
@@ -24,6 +23,13 @@ import { MnemonicScreen } from './src/screens/MnemonicScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { OperatorRegisterScreen } from './src/screens/OperatorRegisterScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
+import { CustomerReviewScreen } from './src/screens/CustomerReviewScreen';
+import { DepositFlowScreen } from './src/screens/DepositFlowScreen';
+import { HistoryScreen } from './src/screens/HistoryScreen';
+import { OperatorDashboardScreen } from './src/screens/OperatorDashboardScreen';
+import { OperatorFinalizeScreen } from './src/screens/OperatorFinalizeScreen';
+import { RedeemScreen } from './src/screens/RedeemScreen';
+import { SyncDashboardScreen } from './src/screens/SyncDashboardScreen';
 
 type AppState =
   | { type: 'loading' }
@@ -33,7 +39,13 @@ type AppState =
   | { type: 'recover' }
   | { type: 'operator_register' }
   | { type: 'home'; identity: Identity }
-  | { type: 'operator_home' };
+  | { type: 'customer_review'; identity: Identity }
+  | { type: 'customer_history'; identity: Identity }
+  | { type: 'redeem'; identity: Identity }
+  | { type: 'operator_home' }
+  | { type: 'operator_deposit' }
+  | { type: 'operator_finalize' }
+  | { type: 'operator_sync' };
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -180,11 +192,64 @@ function App() {
         );
 
       case 'home': {
-        return <HomeScreen identity={state.identity} />;
+        return (
+          <HomeScreen
+            identity={state.identity}
+            onReviewProposal={() =>
+              setState({ type: 'customer_review', identity: state.identity })
+            }
+            onRedeem={() => setState({ type: 'redeem', identity: state.identity })}
+            onHistory={() =>
+              setState({ type: 'customer_history', identity: state.identity })
+            }
+          />
+        );
       }
 
+      case 'customer_review':
+        return (
+          <CustomerReviewScreen
+            identity={state.identity}
+            onBack={() => setState({ type: 'home', identity: state.identity })}
+          />
+        );
+
+      case 'customer_history':
+        return (
+          <HistoryScreen
+            identity={state.identity}
+            onBack={() => setState({ type: 'home', identity: state.identity })}
+          />
+        );
+
+      case 'redeem':
+        return (
+          <RedeemScreen
+            identity={state.identity}
+            onBack={() => setState({ type: 'home', identity: state.identity })}
+          />
+        );
+
       case 'operator_home':
-        return <OperatorHomePanel onRefresh={boot} />;
+        return (
+          <OperatorDashboardScreen
+            onNewDeposit={() => setState({ type: 'operator_deposit' })}
+            onFinalize={() => setState({ type: 'operator_finalize' })}
+            onSync={() => setState({ type: 'operator_sync' })}
+            onRefresh={boot}
+          />
+        );
+
+      case 'operator_deposit':
+        return <DepositFlowScreen onBack={() => setState({ type: 'operator_home' })} />;
+
+      case 'operator_finalize':
+        return (
+          <OperatorFinalizeScreen onBack={() => setState({ type: 'operator_home' })} />
+        );
+
+      case 'operator_sync':
+        return <SyncDashboardScreen onBack={() => setState({ type: 'operator_home' })} />;
 
       default:
         return null;
@@ -198,39 +263,6 @@ function App() {
     </SafeAreaProvider>
   );
 }
-
-const OperatorHomePanel: React.FC<{ onRefresh: () => Promise<void> }> = ({
-  onRefresh,
-}) => {
-  const [remaining, setRemaining] = useState<number | null>(null);
-  const [pk, setPk] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      const c = await OperatorService.getLocalCertificate();
-      const r = await OperatorService.getRemainingFloat();
-      setRemaining(r);
-      setPk(c?.operatorPubkey?.slice(0, 18) ?? '—');
-    })();
-  }, []);
-
-  return (
-    <View style={styles.homeContainer}>
-      <Text style={styles.homeTitle}>Operator</Text>
-      <Text style={styles.subtitle}>Float left: {remaining ?? '…'}</Text>
-      <Text style={styles.pkLabel}>Key {pk}…</Text>
-      <TouchableOpacity
-        style={styles.primaryBtn}
-        onPress={() => void OperatorService.syncCertificateToCloud()}
-      >
-        <Text style={styles.primaryBtnText}>Sync certificate</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryBtn} onPress={() => void onRefresh()}>
-        <Text style={styles.secondaryBtnText}>Refresh</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -255,14 +287,6 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   secondaryBtn: { paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
   secondaryBtnText: { color: '#007AFF', fontSize: 16 },
-  homeContainer: {
-    flex: 1,
-    padding: 24,
-    paddingTop: 48,
-    alignItems: 'center',
-  },
-  homeTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 24, color: '#1a1a1a' },
-  pkLabel: { marginTop: 8, fontSize: 14, color: '#666' },
 });
 
 export default App;
