@@ -5,6 +5,10 @@ export interface EventPayload {
     weightKg?: number;
     plasticClass?: 'A' | 'B' | 'C';
     credits: number;
+    plantId?: string;
+    material?: string;
+    aiSuggestion?: string;
+    aiConfidence?: number;
     notes?: string;
   };
   customerPubkey: string | null;
@@ -35,4 +39,34 @@ export interface OperatorCertificate {
   issuedAt: number;
   expiresAt: number | null;
   isActive: boolean;
+}
+
+export type PlasticClass = 'A' | 'B' | 'C';
+
+export interface DepositProposal {
+  eventId: string;
+  eventType: 'DEPOSIT';
+  plantId: string;
+  customerPubkey: string;
+  operatorPubkey: string;
+  weightKg: number;
+  plasticClass: PlasticClass;
+  material: string;
+  credits: number;
+  payloadJson: string;
+  photoHashes: string[];
+  photoHashesJson: string;
+  previousHash: string | null;
+  eventHash: string;
+  aiSuggestion?: string;
+  aiConfidence?: number;
+  createdAtLocal: number;
+  operatorSig: string;
+}
+
+export interface CustomerSignedResponse {
+  eventId: string;
+  customerPubkey: string;
+  customerSig: string;
+  acceptedAtLocal: number;
 }

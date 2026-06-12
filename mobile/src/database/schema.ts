@@ -39,6 +39,28 @@ CREATE TABLE IF NOT EXISTS operator_certificates (
 
 CREATE INDEX IF NOT EXISTS idx_certs_operator ON operator_certificates(operator_pubkey);
 
+CREATE TABLE IF NOT EXISTS price_schedule (
+  class TEXT PRIMARY KEY,
+  rate_per_kg INTEGER NOT NULL,
+  effective_from INTEGER NOT NULL,
+  effective_to INTEGER
+);
+
+INSERT OR IGNORE INTO price_schedule(class, rate_per_kg, effective_from, effective_to)
+VALUES
+  ('A', 500, 0, NULL),
+  ('B', 250, 0, NULL),
+  ('C', 100, 0, NULL);
+
+CREATE TABLE IF NOT EXISTS photo_evidence (
+  photo_hash TEXT PRIMARY KEY,
+  event_id TEXT,
+  label TEXT NOT NULL,
+  local_uri TEXT,
+  created_at INTEGER NOT NULL,
+  uploaded INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS crash_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp INTEGER NOT NULL,
@@ -47,4 +69,26 @@ CREATE TABLE IF NOT EXISTS crash_logs (
 );
 `;
 
-export const MIGRATIONS: string[] = [];
+export const MIGRATIONS: string[] = [
+  `
+  CREATE TABLE IF NOT EXISTS price_schedule (
+    class TEXT PRIMARY KEY,
+    rate_per_kg INTEGER NOT NULL,
+    effective_from INTEGER NOT NULL,
+    effective_to INTEGER
+  );
+  INSERT OR IGNORE INTO price_schedule(class, rate_per_kg, effective_from, effective_to)
+  VALUES
+    ('A', 500, 0, NULL),
+    ('B', 250, 0, NULL),
+    ('C', 100, 0, NULL);
+  CREATE TABLE IF NOT EXISTS photo_evidence (
+    photo_hash TEXT PRIMARY KEY,
+    event_id TEXT,
+    label TEXT NOT NULL,
+    local_uri TEXT,
+    created_at INTEGER NOT NULL,
+    uploaded INTEGER DEFAULT 0
+  );
+  `,
+];
