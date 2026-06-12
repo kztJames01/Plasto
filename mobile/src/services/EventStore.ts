@@ -86,6 +86,56 @@ export class EventStore {
     }
   }
 
+  static async getLatestEventHashForOperator(
+    operatorPubkey: string,
+  ): Promise<string | null> {
+    const db = await getDatabase();
+    const result = db.execute(
+      `SELECT event_hash
+       FROM events
+       WHERE operator_pubkey = ?
+       ORDER BY created_at_local DESC, event_id DESC
+       LIMIT 1`,
+      [operatorPubkey],
+    );
+
+    return result.rows?._array?.[0]?.event_hash ?? null;
+  }
+
+  static async appendPrepared(
+    event: EventPayload,
+    payloadJson: string = JSON.stringify(event.payload),
+  ): Promise<void> {
+    const db = await getDatabase();
+    const syncedFlag = event.synced === true ? 1 : 0;
+
+    db.execute(
+      `INSERT OR IGNORE INTO events (
+        event_id, event_type, payload_json, customer_pubkey,
+        operator_pubkey, customer_sig, operator_sig, photo_hashes,
+        previous_hash, event_hash, created_at_local, synced
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        event.eventId,
+        event.eventType,
+        payloadJson,
+        event.customerPubkey,
+        event.operatorPubkey,
+        event.customerSig,
+        event.operatorSig,
+        JSON.stringify(event.photoHashes),
+        event.previousHash,
+        event.eventHash,
+        event.createdAtLocal,
+        syncedFlag,
+      ],
+    );
+
+    if (event.customerPubkey) {
+      await BalanceService.recalculate(event.customerPubkey);
+    }
+  }
+
   static async getUnsynced(limit: number = 1000): Promise<EventPayload[]> {
     const db = await getDatabase();
     const result = db.execute(
@@ -94,6 +144,15 @@ export class EventStore {
     );
 
     return (result.rows?._array ?? []).map(EventStore.rowToEvent);
+  }
+
+  static async countUnsynced(): Promise<number> {
+    const db = await getDatabase();
+    const row = db.execute(
+      `SELECT COUNT(*) AS count FROM events WHERE synced = 0`,
+    ).rows?._array?.[0];
+
+    return Number(row?.count ?? 0);
   }
 
   static async markSynced(eventIds: string[]): Promise<void> {
