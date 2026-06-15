@@ -16,16 +16,51 @@ type ChainValidationResult = {
   reason?: string;
 };
 
+/**
+ * Deterministic JSON canonicalization: object keys are sorted, whitespace is
+ * stripped, numbers are emitted as plain decimals. The server uses an
+ * equivalent implementation (see backend EventHashService.CanonicalJson) so
+ * the hashes computed on device match the hashes recomputed server-side.
+ */
+export function canonicalizePayloadJson(payloadJson: string): string {
+  if (!payloadJson) {
+    return '';
+  }
+  try {
+    return JSON.stringify(canonicalize(JSON.parse(payloadJson)));
+  } catch {
+    // Non-JSON payloads fall through; the server's hash check will reject them.
+    return payloadJson;
+  }
+}
+
+function canonicalize(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  const obj = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    sorted[key] = canonicalize(obj[key]);
+  }
+  return sorted;
+}
+
 export class HashChainService {
   static computeHash(
+    eventId: string,
     eventType: string,
     payloadJson: string,
     previousHash: string | null,
     createdAtLocal: number,
   ): string {
     const prev = previousHash ?? '';
-    // Hash payload + linkage fields so any tampering breaks all following events.
-    const s = `${eventType}${payloadJson}${prev}${createdAtLocal}`;
+    // Must match backend EventHashService.computeEventHash byte-for-byte.
+    const canonical = canonicalizePayloadJson(payloadJson);
+    const s = `${eventId}|${eventType}|${canonical}|${prev}|${createdAtLocal}`;
     return sha256(s);
   }
 
@@ -46,6 +81,7 @@ export class HashChainService {
     for (let i = 0; i < rows.length; i++) {
       const ev = rows[i];
       const recomputed = this.computeHash(
+        ev.event_id,
         ev.event_type,
         ev.payload_json,
         ev.previous_hash,

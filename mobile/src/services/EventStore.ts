@@ -50,6 +50,7 @@ export class EventStore {
 
     const payloadJson = JSON.stringify(event.payload);
     const eventHash = HashChainService.computeHash(
+      event.eventId,
       event.eventType,
       payloadJson,
       previousHash,

@@ -72,6 +72,7 @@ export class DepositProposalService {
     };
     const payloadJson = sortedPayloadJson(payload);
     const eventHash = HashChainService.computeHash(
+      eventId,
       'DEPOSIT',
       payloadJson,
       previousHash,
