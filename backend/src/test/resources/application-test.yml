@@ -11,3 +11,9 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
   flyway:
     enabled: false
+
+plasto:
+  photos:
+    upload-base-url: http://localhost:8080/local-photo-upload
+    # 32-byte default test signing key. Override via env in production.
+    signing-key: test-signing-key-32-bytes-long-enough-1234

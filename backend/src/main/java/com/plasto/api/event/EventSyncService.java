@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +60,9 @@ public class EventSyncService {
 		Set<String> photoHashesInBatch = new HashSet<>();
 
 		for (SyncEventRequest event : request.events()) {
+			if (event.eventType() == null || event.eventType().isBlank()) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "eventType is required");
+			}
 			validateEventHash(event);
 
 			var existing = eventRepository.findById(event.eventId());
@@ -82,7 +86,7 @@ public class EventSyncService {
 				plantByOperator.put(event.operatorPubkey(), certificate.getPlantId());
 			}
 
-			eventRepository.save(toRecord(event));
+			persistOrThrow(event);
 			latestHashByOperator.put(event.operatorPubkey(), event.eventHash());
 			acknowledged.add(event.eventId().toString());
 		}
@@ -128,12 +132,28 @@ public class EventSyncService {
 
 	private void validateHashChain(SyncEventRequest event, Map<String, String> latestHashByOperator) {
 		String expectedPrevious = latestHashByOperator.computeIfAbsent(event.operatorPubkey(), op ->
+			// Uniqueness is enforced at INSERT time by the unique constraints
+			// in V4__event_hash_unique_constraints.sql; a concurrent batch that
+			// reads the same latest hash will fail to insert its sibling event.
 			eventRepository.findFirstByOperatorPubkeyOrderByCreatedAtLocalDescReceivedAtDesc(op)
 				.map(EventRecord::getEventHash)
 				.orElse(""));
 		String actualPrevious = event.previousHash() == null ? "" : event.previousHash();
 		if (!expectedPrevious.equals(actualPrevious)) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "operator hash chain break");
+		}
+	}
+
+	private void persistOrThrow(SyncEventRequest event) {
+		try {
+			eventRepository.saveAndFlush(toRecord(event));
+		} catch (DataIntegrityViolationException ex) {
+			// The unique constraints on (operator_pubkey, event_hash) and
+			// (operator_pubkey, previous_hash) reject concurrent forking.
+			throw new ResponseStatusException(
+				HttpStatus.CONFLICT,
+				"event rejected by uniqueness constraint (likely concurrent fork)",
+				ex);
 		}
 	}
 
@@ -149,14 +169,25 @@ public class EventSyncService {
 		}
 	}
 
+	private static final long MAX_CREDITS_PER_EVENT = 1_000_000L;
+
 	private long creditsIssued(SyncEventRequest event) {
-		if (!"DEPOSIT".equalsIgnoreCase(event.eventType()) && !"ADJUST".equalsIgnoreCase(event.eventType())) {
+		String type = event.eventType().toUpperCase();
+		if (!"DEPOSIT".equals(type) && !"ADJUST".equals(type)) {
 			return 0;
 		}
 		try {
 			JsonNode json = objectMapper.readTree(event.payloadJson());
 			long credits = firstLong(json, "credits", "creditAmount", "credit_amount", "amount_credits");
-			return Math.max(credits, 0);
+			if (credits < 0) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "credits must be non-negative");
+			}
+			if (credits > MAX_CREDITS_PER_EVENT) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "credits exceed per-event maximum");
+			}
+			return credits;
+		} catch (ResponseStatusException ex) {
+			throw ex;
 		} catch (Exception ex) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "payload_json must be valid JSON");
 		}

@@ -79,6 +79,68 @@ class SyncBatchControllerTests {
 	}
 
 	@Test
+	void syncBatchRejectsHashChainBreak() throws Exception {
+		// Second event claims a previousHash that does not match the operator's
+		// latest persisted event. The server must reject the entire batch.
+		KeyPair operator = keyPair();
+		KeyPair customer = keyPair();
+		String operatorPubkey = rawPublicKey(operator);
+		String customerPubkey = rawPublicKey(customer);
+
+		issueCertificate(operatorPubkey, 1_000);
+
+		Map<String, Object> first = signedEvent(operator, customer, operatorPubkey, customerPubkey,
+			UUID.randomUUID(), "", 10, 1_700_000_000_010L, "[]");
+		mvc.perform(post("/api/v1/sync/batch")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(first)))))
+			.andExpect(status().isOk());
+
+		Map<String, Object> forked = signedEvent(operator, customer, operatorPubkey, customerPubkey,
+			UUID.randomUUID(), "0".repeat(64), 10, 1_700_000_000_011L, "[]");
+		mvc.perform(post("/api/v1/sync/batch")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(forked)))))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.message").value("operator hash chain break"));
+	}
+
+	@Test
+	void photoUploadRejectsBadSignature() throws Exception {
+		// First presign a real URL, then submit the upload with a tampered
+		// signature. The endpoint must reject with 403.
+		String hash = "c".repeat(64);
+		String presignJson = mvc.perform(post("/api/v1/photos/presigned")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"contentType", "image/jpeg"))))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		String uploadUrl = objectMapper.readTree(presignJson).get("uploadUrl").asText();
+
+		// Tamper with the signature.
+		String tampered = uploadUrl.replaceAll("sig=[0-9a-f]+", "sig=" + "0".repeat(64));
+
+		mvc.perform(post(tampered.replace("http://localhost:8080", ""))
+				.contentType(MediaType.APPLICATION_OCTET_STREAM)
+				.content(new byte[] { 0x01, 0x02, 0x03 }))
+			.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void photoPresignRejectsDisallowedContentType() throws Exception {
+		// @Pattern fires first with 400; the service-level allowlist would return
+		// 415 if the pattern were loosened. Either is acceptable as long as it is 4xx.
+		mvc.perform(post("/api/v1/photos/presigned")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", "d".repeat(64),
+					"contentType", "application/zip"))))
+			.andExpect(status().is4xxClientError());
+	}
+
+	@Test
 	void photoPresignCreatesUploadRecord() throws Exception {
 		mvc.perform(post("/api/v1/photos/presigned")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -89,15 +151,34 @@ class SyncBatchControllerTests {
 			.andExpect(jsonPath("$.objectKey").value("photos/bb/%s.jpg".formatted("b".repeat(64))));
 	}
 
+	private static final String PLANT_ID = "plant-a";
+	private static final KeyPair ADMIN_KEYPAIR = adminKeyPair();
+	private static final String ADMIN_PUBKEY = adminRawPublicKey();
+
+	private static KeyPair adminKeyPair() {
+		try {
+			return KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+		} catch (Exception ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private static String adminRawPublicKey() {
+		byte[] encoded = ADMIN_KEYPAIR.getPublic().getEncoded();
+		byte[] raw = java.util.Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
+		return Base64.getEncoder().encodeToString(raw);
+	}
+
 	private void issueCertificate(String operatorPubkey, long floatCap) throws Exception {
+		String adminSig = sign(ADMIN_KEYPAIR, "PLASTO_ISSUE_CERT|" + operatorPubkey + "|" + PLANT_ID + "|" + floatCap + "|" + ADMIN_PUBKEY);
 		mvc.perform(post("/api/v1/admin/certificates")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsBytes(Map.of(
 					"operatorPubkey", operatorPubkey,
-					"plantId", "plant-a",
+					"plantId", PLANT_ID,
 					"floatCap", floatCap,
-					"adminPubkey", "admin",
-					"adminSig", "admin-sig"))))
+					"adminPubkey", ADMIN_PUBKEY,
+					"adminSig", adminSig))))
 			.andExpect(status().isOk());
 	}
 
@@ -114,7 +195,8 @@ class SyncBatchControllerTests {
 	) throws Exception {
 		String eventType = "DEPOSIT";
 		String payloadJson = "{\"credits\":%d}".formatted(credits);
-		String eventHash = sha256(eventType + payloadJson + previousHash + createdAt);
+		// Server now includes eventId and pipes between fields; match exactly.
+		String eventHash = sha256(eventId.toString() + "|" + eventType + "|" + payloadJson + "|" + previousHash + "|" + createdAt);
 		String payload = String.join("|",
 			eventId.toString(), eventType, payloadJson, customerPubkey, operatorPubkey,
 			photoHashes, previousHash, eventHash, String.valueOf(createdAt));
