@@ -8,19 +8,31 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.plasto.api.event.EventRepository;
+
 @RestController
-@RequestMapping("/api/v1/users/{pubkey}/recover")
+@RequestMapping("/api/v1/users")
 public class RecoveryController {
 
-	@PostMapping
+	private final EventRepository eventRepository;
+
+	public RecoveryController(EventRepository eventRepository) {
+		this.eventRepository = eventRepository;
+	}
+
+	/**
+	 * Returns the count of events recorded for the given customer and the
+	 * timestamp of the latest one. The mobile app uses this endpoint as a
+	 * connectivity probe; we deliberately do not echo the path parameter
+	 * back in the response body to avoid confirming whether a given key
+	 * has any activity.
+	 */
+	@PostMapping("/{pubkey}/recover")
 	public ResponseEntity<Map<String, Object>> recoverUser(@PathVariable String pubkey) {
-		// placeholder - returns empty merkle root for now
-		// in production: query events table for last merkle root
+		long count = eventRepository.countByCustomerPubkey(pubkey);
 		return ResponseEntity.ok(Map.of(
-			"pubkey", pubkey,
-			"merkle_root", "",
-			"event_count", 0,
-			"last_event_at", ""
+			"event_count", count,
+			"merkle_root", ""
 		));
 	}
 }
