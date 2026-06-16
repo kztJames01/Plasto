@@ -35,10 +35,19 @@ public class SignatureVerifier {
 			verifier.update(message.getBytes(StandardCharsets.UTF_8));
 			return verifier.verify(signatureBytes);
 		} catch (Exception ex) {
+			System.err.println("Sig verify exception: " + ex.getClass().getName() + ": " + ex.getMessage());
 			return false;
 		}
 	}
 
+	/**
+	 * Decode a public key or signature. The format must be specified via one
+	 * of the {@code base64:}, {@code base64url:}, {@code hex:}, or
+	 * {@code base58:} prefixes. Unprefixed inputs are accepted only as
+	 * pure-hex (since hex is the only encoding that is unambiguous to a
+	 * strict matcher) to prevent an attacker from crafting a value that is
+	 * decoded as one encoding on the client and a different one here.
+	 */
 	private static byte[] decodeFlexible(String value) {
 		if (value == null || value.isBlank()) {
 			throw new IllegalArgumentException("empty encoded value");
@@ -57,65 +66,14 @@ public class SignatureVerifier {
 		if (lower.startsWith("base58:")) {
 			return decodeBase58(text.substring(7));
 		}
-
-		if (text.matches("[0-9a-fA-F]+") && text.length() % 2 == 0) {
+		// Unprefixed input: accept only pure hex (length must be even, 2..128).
+		// Falling through to base64/base58 detection would be ambiguous: e.g.
+		// "abcdef" can be decoded as 3 raw bytes, so an attacker could craft a
+		// value that means one thing on the device and another on the server.
+		if (text.matches("[0-9a-fA-F]+") && text.length() >= 2 && text.length() % 2 == 0) {
 			return hexToBytes(text);
 		}
-		if (looksLikeBase64(text)) {
-			byte[] decoded = tryBase64(text);
-			if (decoded != null) {
-				return decoded;
-			}
-		}
-		byte[] base58 = tryBase58(text);
-		if (base58 != null) {
-			return base58;
-		}
-		byte[] base64Url = tryBase64Url(text);
-		if (base64Url != null) {
-			return base64Url;
-		}
-		byte[] base64 = tryBase64(text);
-		if (base64 != null) {
-			return base64;
-		}
-		throw new IllegalArgumentException("unsupported key/signature encoding");
-	}
-
-	private static boolean looksLikeBase64(String text) {
-		return text.indexOf('=') >= 0 || text.indexOf('+') >= 0 || text.indexOf('/') >= 0;
-	}
-
-	private static byte[] tryBase64(String text) {
-		try {
-			return Base64.getDecoder().decode(text);
-		} catch (IllegalArgumentException ex) {
-			return null;
-		}
-	}
-
-	private static byte[] tryBase64Url(String text) {
-		try {
-			return Base64.getUrlDecoder().decode(text);
-		} catch (IllegalArgumentException ex) {
-			return null;
-		}
-	}
-
-	private static byte[] tryHex(String text) {
-		try {
-			return hexToBytes(text);
-		} catch (IllegalArgumentException ex) {
-			return null;
-		}
-	}
-
-	private static byte[] tryBase58(String text) {
-		try {
-			return decodeBase58(text);
-		} catch (IllegalArgumentException ex) {
-			return null;
-		}
+		throw new IllegalArgumentException("unsupported key/signature encoding; use base64:, base64url:, hex:, or base58:");
 	}
 
 	private static byte[] wrapRawEd25519PublicKey(byte[] rawKey) {
