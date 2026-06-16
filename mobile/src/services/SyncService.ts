@@ -45,8 +45,15 @@ export class SyncService {
     });
 
     if (!response.ok) {
-      const message = await response.text().catch(() => '');
-      throw new Error(`Sync failed (${response.status}) ${message}`);
+      // Do not include the raw response body in the thrown message: it
+      // can leak internal server details or HTML error pages to the UI
+      // (which renders it). Log the body for diagnostics in dev only
+      // and surface only a status-based message to the user.
+      const body = await response.text().catch(() => '');
+      if (__DEV__) {
+        console.warn(`Sync failed (${response.status})`, body);
+      }
+      throw new Error(`Sync failed (${response.status})`);
     }
 
     const body = (await response.json()) as SyncBatchResponse;
