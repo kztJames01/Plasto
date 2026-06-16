@@ -16,6 +16,14 @@ public class FloatService {
 	}
 
 	public void resetFloatLimit(String operatorPubkey, String plantId, long cap) {
+		if (cap <= 0L) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "float cap must be positive");
+		}
+		// Upper bound matches IssueCertificateRequest @Max so the cap cannot
+		// be set to a value that, when added to consumed, could overflow a long.
+		if (cap > 1_000_000_000_000L) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "float cap exceeds maximum");
+		}
 		OperatorFloat opFloat = repository.findById(operatorPubkey).orElseGet(OperatorFloat::new);
 		opFloat.setOperatorPubkey(operatorPubkey);
 		opFloat.setPlantId(plantId);
