@@ -107,6 +107,7 @@ export class EventStore {
     event: EventPayload,
     payloadJson: string = JSON.stringify(event.payload),
   ): Promise<void> {
+    EventStore.assertValidPreparedEvent(event, payloadJson);
     const db = await getDatabase();
     const syncedFlag = event.synced === true ? 1 : 0;
 
@@ -291,4 +292,36 @@ export class EventStore {
     };
   }
 
+  /**
+   * Cheap pre-flight checks on the event before we persist. The server is
+   * the source of truth and re-validates everything; this just catches
+   * obvious client-side bugs early so they fail loudly rather than showing
+   * up as a sync conflict days later.
+   */
+  private static assertValidPreparedEvent(
+    event: EventPayload,
+    payloadJson: string,
+  ): void {
+    if (!event.eventId || !/^[0-9a-f-]{36}$/i.test(event.eventId)) {
+      throw new Error('appendPrepared: eventId is missing or not a UUID');
+    }
+    if (!event.eventType || !/^[A-Z0-9_]+$/.test(event.eventType)) {
+      throw new Error('appendPrepared: eventType must be an uppercase identifier');
+    }
+    if (!event.operatorPubkey) {
+      throw new Error('appendPrepared: operatorPubkey is required');
+    }
+    if (!event.operatorSig) {
+      throw new Error('appendPrepared: operatorSig is required');
+    }
+    if (!event.eventHash || !/^[A-Fa-f0-9]{64}$/.test(event.eventHash)) {
+      throw new Error('appendPrepared: eventHash must be a 64-char hex SHA-256');
+    }
+    if (typeof event.createdAtLocal !== 'number' || event.createdAtLocal <= 0) {
+      throw new Error('appendPrepared: createdAtLocal must be a positive epoch ms');
+    }
+    if (typeof payloadJson !== 'string' || payloadJson.length === 0 || payloadJson.length > 65536) {
+      throw new Error('appendPrepared: payloadJson must be a non-empty string <= 64KB');
+    }
+  }
 }

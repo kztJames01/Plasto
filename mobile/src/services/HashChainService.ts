@@ -64,12 +64,32 @@ export class HashChainService {
     return sha256(s);
   }
 
+  /**
+   * Validate the per-customer hash chain. Most local UI flows only need
+   * this; operator-side validation is exposed via validateOperatorChain.
+   */
   static async validateChain(pubkey: string): Promise<ChainValidationResult> {
+    return this.validateChainFor('customer_pubkey', pubkey);
+  }
+
+  /**
+   * Validate the per-operator hash chain. An operator phone should call
+   * this before flushing a batch to the server so a tampered local event
+   * log surfaces immediately rather than as a sync rejection hours later.
+   */
+  static async validateOperatorChain(operatorPubkey: string): Promise<ChainValidationResult> {
+    return this.validateChainFor('operator_pubkey', operatorPubkey);
+  }
+
+  private static async validateChainFor(
+    column: 'customer_pubkey' | 'operator_pubkey',
+    pubkey: string,
+  ): Promise<ChainValidationResult> {
     const db = await getDatabase();
     const rows = db.execute(
       `SELECT event_id, event_hash, previous_hash, event_type, payload_json, created_at_local
        FROM events
-       WHERE customer_pubkey = ?
+       WHERE ${column} = ?
        ORDER BY created_at_local ASC, event_id ASC`,
       [pubkey],
     ).rows?._array as ChainRow[] | undefined;
