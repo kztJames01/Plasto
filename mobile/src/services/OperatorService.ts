@@ -1,5 +1,4 @@
 import { Buffer } from 'buffer';
-import { v4 as uuidv4 } from 'uuid';
 import { EventStore } from './EventStore';
 import { OperatorCertificate } from '../types/events';
 import { CryptoService } from './CryptoService';
@@ -7,16 +6,19 @@ import { KeychainService } from './KeychainService';
 
 const API_BASE = 'http://localhost:8080/api/v1';
 
-function enc(s: string): Uint8Array {
-  return new TextEncoder().encode(s);
-}
-
 export class OperatorService {
-  static async registerOperator(
+  /**
+   * Provisions a new operator identity locally and stores the public/secret
+   * key in secure storage. The operator certificate itself is NOT issued
+   * here — the operator must present their pubkey + plantId to a real
+   * admin, who signs the canonical payload server-side. The previous
+   * version of this method fabricated an admin signature by reusing the
+   * operator's own signature bytes; that has been removed because it let
+   * any phone self-issue a certificate to any plant.
+   */
+  static async provisionLocalOperator(
     plantId: string,
-    floatCap: number,
-    adminPubkey: string,
-  ): Promise<OperatorCertificate> {
+  ): Promise<{ operatorPubkey: string }> {
     const kp = CryptoService.generateDeviceKeypair();
 
     await KeychainService.storeOperatorKeys({
@@ -28,28 +30,29 @@ export class OperatorService {
       kp.publicKey,
     );
 
-    const certPayload = `${operatorPubkeyBase58}:${floatCap}:${plantId}`;
-    const opSig = CryptoService.sign(enc(certPayload), kp.secretKey);
+    await EventStore.setAppRole('operator');
+    // Deliberately do NOT write an operator_certificates row yet. That only
+    // happens after {@link activateIssuedCertificate} is called with a
+    // server-signed cert.
+    return { operatorPubkey: operatorPubkeyBase58 };
+  }
 
-    // demo path: admin sig same bytes as operator proof (real plant: admin master key signs)
-    const adminSig = Buffer.from(opSig).toString('base64');
-
-    const cert: OperatorCertificate = {
-      certificateId: uuidv4(),
-      operatorPubkey: operatorPubkeyBase58,
-      plantId,
-      floatCap,
-      adminPubkey,
-      adminSig,
-      issuedAt: Date.now(),
-      expiresAt: Date.now() + 90 * 24 * 60 * 60 * 1000,
-      isActive: true,
-    };
-
+  /**
+   * Persists a server-issued operator certificate locally and switches the
+   * app into operator mode. The cert must already be signed by the admin
+   * key and verified by the backend.
+   */
+  static async activateIssuedCertificate(
+    cert: OperatorCertificate,
+  ): Promise<void> {
+    if (!cert.adminSig || cert.adminSig.trim().length === 0) {
+      throw new Error('certificate has no admin signature');
+    }
+    if (cert.expiresAt && cert.expiresAt < Date.now()) {
+      throw new Error('certificate is already expired');
+    }
     await EventStore.storeOperatorCertificate(cert);
     await EventStore.setAppRole('operator');
-
-    return cert;
   }
 
   static async getLocalCertificate(): Promise<OperatorCertificate | null> {
@@ -72,7 +75,12 @@ export class OperatorService {
 
     return EventStore.getRemainingFloat(cert.operatorPubkey);
   }
-
+  /**
+   * Re-syncs an already-activated certificate to the cloud. The cert must
+   * already have been issued and signed by the admin key — this method is
+   * purely a re-upload for offline-first devices and never mints a fresh
+   * signature.
+   */
   static async syncCertificateToCloud(): Promise<void> {
     const cert = await this.getLocalCertificate();
     if (!cert) {

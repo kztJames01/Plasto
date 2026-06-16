@@ -9,6 +9,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { OperatorService } from '../services/OperatorService';
+import { OperatorCertificate } from '../types/events';
 
 interface Props {
   onRegistered: () => void;
@@ -16,8 +17,7 @@ interface Props {
 
 export const OperatorRegisterScreen: React.FC<Props> = ({ onRegistered }) => {
   const [plantId, setPlantId] = useState('');
-  const [floatCap, setFloatCap] = useState('500000');
-  const [adminPk, setAdminPk] = useState('');
+  const [certJson, setCertJson] = useState('');
   const [busy, setBusy] = useState(false);
 
   const go = async () => {
@@ -25,27 +25,34 @@ export const OperatorRegisterScreen: React.FC<Props> = ({ onRegistered }) => {
       Alert.alert('Plant ID', 'Enter plant id');
       return;
     }
-    const cap = parseInt(floatCap, 10);
-    if (!Number.isFinite(cap) || cap <= 0) {
-      Alert.alert('Float', 'Enter a positive credit cap');
+    if (!certJson.trim()) {
+      Alert.alert('Admin certificate', 'Paste the JSON certificate the admin issued for this device');
       return;
     }
-    if (!adminPk.trim()) {
-      Alert.alert('Admin key', 'Enter admin public key (base58)');
-      return;
-    }
-
     setBusy(true);
     try {
-      await OperatorService.registerOperator(
-        plantId.trim(),
-        cap,
-        adminPk.trim(),
-      );
-      void OperatorService.syncCertificateToCloud();
+      // 1) Generate + store the device keypair locally.
+      const { operatorPubkey } =
+        await OperatorService.provisionLocalOperator(plantId.trim());
+
+      // 2) Parse the admin-signed cert the admin returned (e.g. via QR).
+      let parsed: OperatorCertificate;
+      try {
+        parsed = JSON.parse(certJson.trim()) as OperatorCertificate;
+      } catch {
+        throw new Error('admin certificate is not valid JSON');
+      }
+      if (parsed.operatorPubkey !== operatorPubkey) {
+        throw new Error(
+          `admin certificate is for a different operator (${parsed.operatorPubkey} vs ${operatorPubkey})`,
+        );
+      }
+
+      // 3) Activate: persist the cert and switch to operator mode.
+      await OperatorService.activateIssuedCertificate(parsed);
       onRegistered();
     } catch (e) {
-      Alert.alert('Error', String(e));
+      Alert.alert('Error', e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -55,8 +62,9 @@ export const OperatorRegisterScreen: React.FC<Props> = ({ onRegistered }) => {
     <ScrollView contentContainerStyle={styles.wrap}>
       <Text style={styles.title}>Plant operator</Text>
       <Text style={styles.hint}>
-        Matches idea doc: device keypair + treasury float signed by admin (demo
-        uses same sig as operator proof).
+        Provision a device keypair, then paste the admin-signed certificate
+        JSON. The backend will reject the certificate on first sync if the
+        admin signature does not match.
       </Text>
 
       <Text style={styles.label}>Plant ID</Text>
@@ -69,23 +77,15 @@ export const OperatorRegisterScreen: React.FC<Props> = ({ onRegistered }) => {
         autoCapitalize="none"
       />
 
-      <Text style={styles.label}>Float cap (credits)</Text>
+      <Text style={styles.label}>Admin-signed certificate (JSON)</Text>
       <TextInput
-        style={styles.input}
-        value={floatCap}
-        onChangeText={setFloatCap}
-        keyboardType="number-pad"
-        editable={!busy}
-      />
-
-      <Text style={styles.label}>Admin public key (base58)</Text>
-      <TextInput
-        style={styles.input}
-        value={adminPk}
-        onChangeText={setAdminPk}
-        placeholder="Treasury / plant master key"
+        style={[styles.input, styles.multiline]}
+        value={certJson}
+        onChangeText={setCertJson}
+        placeholder='{"operatorPubkey":"...","plantId":"...","floatCap":...,"adminPubkey":"...","adminSig":"...","issuedAt":...,"expiresAt":...,"isActive":true}'
         editable={!busy}
         autoCapitalize="none"
+        multiline
       />
 
       <TouchableOpacity
@@ -96,7 +96,7 @@ export const OperatorRegisterScreen: React.FC<Props> = ({ onRegistered }) => {
         {busy ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.btnTxt}>Register device</Text>
+          <Text style={styles.btnTxt}>Provision + activate</Text>
         )}
       </TouchableOpacity>
     </ScrollView>
@@ -115,6 +115,7 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 16,
   },
+  multiline: { minHeight: 120, textAlignVertical: 'top', fontFamily: 'Menlo' },
   btn: {
     backgroundColor: '#007AFF',
     padding: 16,
