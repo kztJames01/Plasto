@@ -18,4 +18,6 @@ public interface EventRepository extends JpaRepository<EventRecord, UUID> {
 	Optional<EventRecord> findFirstByOperatorPubkeyOrderByCreatedAtLocalDescReceivedAtDesc(String operatorPubkey);
 
 	boolean existsByPhotoHashesContaining(String photoHash);
+
+	long countByCustomerPubkey(String customerPubkey);
 }

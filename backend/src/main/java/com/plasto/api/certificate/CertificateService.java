@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import org.springframework.dao.DataIntegrityViolationException;
+
 import com.plasto.api.crypto.SignatureVerifier;
 import com.plasto.api.floatcap.FloatService;
 //issue certificate for operator
@@ -52,7 +54,20 @@ public class CertificateService {
 		cert.setAdminSig(adminSig);
 		cert.setExpiresAt(Instant.now().plus(90, ChronoUnit.DAYS));
 
-		OperatorCertificate saved = repository.save(cert);
+		OperatorCertificate saved;
+		try {
+			saved = repository.saveAndFlush(cert);
+		} catch (DataIntegrityViolationException ex) {
+			// The unique partial index on (operator_pubkey) WHERE is_active
+			// caught a concurrent admin issuance. The caller can retry; by
+			// the time they do, the other transaction will have committed
+			// and our earlier findByOperatorPubkeyAndIsActiveTrue will
+			// deactivate the older cert.
+			throw new ResponseStatusException(
+				HttpStatus.CONFLICT,
+				"another active certificate for this operator already exists; retry",
+				ex);
+		}
 		floatService.resetFloatLimit(operatorPubkey, plantId, floatCap);
 		return saved;
 	}
