@@ -153,7 +153,7 @@ class SyncBatchControllerTests {
 
 	private static final String PLANT_ID = "plant-a";
 	private static final KeyPair ADMIN_KEYPAIR = adminKeyPair();
-	private static final String ADMIN_PUBKEY = adminRawPublicKey();
+	private static final String ADMIN_PUBKEY = "base64:" + adminRawPublicKey();
 
 	private static KeyPair adminKeyPair() {
 		try {
@@ -170,11 +170,12 @@ class SyncBatchControllerTests {
 	}
 
 	private void issueCertificate(String operatorPubkey, long floatCap) throws Exception {
-		String adminSig = sign(ADMIN_KEYPAIR, "PLASTO_ISSUE_CERT|" + operatorPubkey + "|" + PLANT_ID + "|" + floatCap + "|" + ADMIN_PUBKEY);
+		String wireOpPubkey = "base64:" + operatorPubkey;
+		String adminSig = sign(ADMIN_KEYPAIR, "PLASTO_ISSUE_CERT|" + wireOpPubkey + "|" + PLANT_ID + "|" + floatCap + "|" + ADMIN_PUBKEY);
 		mvc.perform(post("/api/v1/admin/certificates")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsBytes(Map.of(
-					"operatorPubkey", operatorPubkey,
+					"operatorPubkey", wireOpPubkey,
 					"plantId", PLANT_ID,
 					"floatCap", floatCap,
 					"adminPubkey", ADMIN_PUBKEY,
@@ -197,15 +198,19 @@ class SyncBatchControllerTests {
 		String payloadJson = "{\"credits\":%d}".formatted(credits);
 		// Server now includes eventId and pipes between fields; match exactly.
 		String eventHash = sha256(eventId.toString() + "|" + eventType + "|" + payloadJson + "|" + previousHash + "|" + createdAt);
+		// The server reconstructs the signing payload from the wire fields
+		// verbatim, so the test must use the same wire-encoded strings here
+		// (operatorPubkey/customerPubkey are sent with the "base64:" prefix).
 		String payload = String.join("|",
-			eventId.toString(), eventType, payloadJson, customerPubkey, operatorPubkey,
+			eventId.toString(), eventType, payloadJson,
+			"base64:" + customerPubkey, "base64:" + operatorPubkey,
 			photoHashes, previousHash, eventHash, String.valueOf(createdAt));
 		Map<String, Object> event = new LinkedHashMap<>();
 		event.put("eventId", eventId.toString());
 		event.put("eventType", eventType);
 		event.put("payloadJson", payloadJson);
-		event.put("customerPubkey", customerPubkey);
-		event.put("operatorPubkey", operatorPubkey);
+		event.put("customerPubkey", "base64:" + customerPubkey);
+		event.put("operatorPubkey", "base64:" + operatorPubkey);
 		event.put("customerSig", sign(customer, payload));
 		event.put("operatorSig", sign(operator, payload));
 		event.put("photoHashes", photoHashes);
@@ -229,7 +234,9 @@ class SyncBatchControllerTests {
 		Signature signature = Signature.getInstance("Ed25519");
 		signature.initSign(keyPair.getPrivate());
 		signature.update(payload.getBytes(StandardCharsets.UTF_8));
-		return Base64.getEncoder().encodeToString(signature.sign());
+		// Prefix with base64: so the server's strict SignatureVerifier can
+		// decode it without ambiguity.
+		return "base64:" + Base64.getEncoder().encodeToString(signature.sign());
 	}
 
 	private static String sha256(String input) throws Exception {
