@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,8 +12,13 @@ import {
 } from 'react-native';
 
 import { ClassSelector } from '../components/ClassSelector';
+import { ChunkedQrPanel } from '../components/ChunkedQrPanel';
+import { PhotoReviewStrip } from '../components/PhotoReviewStrip';
 import { DepositProposalService } from '../services/DepositProposalService';
-import { PhotoEvidenceService } from '../services/PhotoEvidenceService';
+import { LocalAiClassifierService } from '../services/LocalAiClassifierService';
+import { CapturedPhoto, PhotoCaptureService } from '../services/PhotoCaptureService';
+import { PriceService } from '../services/PriceService';
+import { PriceSyncService } from '../services/PriceSyncService';
 import { DepositProposal, PlasticClass } from '../types/events';
 
 type Props = {
@@ -24,39 +30,88 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
   const [weightKg, setWeightKg] = useState('');
   const [plasticClass, setPlasticClass] = useState<PlasticClass>('A');
   const [material, setMaterial] = useState('plastic bottle');
-  const [photoHashes, setPhotoHashes] = useState(['', '', '']);
+  const [photos, setPhotos] = useState<Array<CapturedPhoto | null>>([null, null, null]);
   const [proposal, setProposal] = useState<DepositProposal | null>(null);
+  const [proposalPackets, setProposalPackets] = useState<string[]>([]);
+  const [creditsPreview, setCreditsPreview] = useState<number>(0);
+  const [ratePreview, setRatePreview] = useState<number>(0);
+  const [aiStatus, setAiStatus] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const updatePhoto = (index: number, value: string) => {
-    setPhotoHashes(current => current.map((h, i) => (i === index ? value : h)));
+  useEffect(() => {
+    void PriceSyncService.syncLatest();
+    void reloadPricingPreview(weightKg, plasticClass);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const reloadPricingPreview = async (nextWeight: string, nextClass: PlasticClass) => {
+    const w = Number(nextWeight);
+    if (!w || w <= 0) {
+      setCreditsPreview(0);
+      setRatePreview(await PriceService.getRate(nextClass));
+      return;
+    }
+    const [credits, rate] = await Promise.all([
+      PriceService.computeCredits(w, nextClass),
+      PriceService.getRate(nextClass),
+    ]);
+    setCreditsPreview(credits);
+    setRatePreview(rate);
   };
 
-  const generateHash = async (index: number) => {
-    const hash = PhotoEvidenceService.hashEvidence({
-      label: `deposit-photo-${index + 1}`,
-      note: `${customerPubkey}:${weightKg}:${material}`,
+  const capturePhoto = async (index: number) => {
+    setError('');
+    try {
+      const photo = await PhotoCaptureService.capture(
+        `deposit-photo-${index + 1}`,
+        `${customerPubkey}:${weightKg}:${material}`,
+      );
+      setPhotos(current => current.map((p, i) => (i === index ? photo : p)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runAiSuggest = () => {
+    setError('');
+    const hashes = photos.filter(Boolean).map(p => p!.evidenceHash);
+    if (hashes.length < 3) {
+      setError('Capture 3 photos first so AI can estimate class');
+      return;
+    }
+    const ai = LocalAiClassifierService.suggest({
+      material,
+      weightKg: Number(weightKg) || 0,
+      photoHashes: hashes,
     });
-    await PhotoEvidenceService.storeEvidence(null, hash, `deposit-photo-${index + 1}`);
-    updatePhoto(index, hash);
+    setPlasticClass(ai.suggestedClass);
+    setAiStatus(`AI suggests class ${ai.suggestedClass} (${ai.confidence}%) - ${ai.reason}`);
+    void reloadPricingPreview(weightKg, ai.suggestedClass);
   };
 
   const createProposal = async () => {
     setError('');
     setProposal(null);
+    setProposalPackets([]);
+    setBusy(true);
     try {
+      const cleanHashes = photos.filter(Boolean).map(p => p!.evidenceHash);
       const next = await DepositProposalService.createProposal({
         customerPubkey,
         weightKg: Number(weightKg),
         plasticClass,
         material,
-        photoHashes,
+        photoHashes: cleanHashes,
         aiSuggestion: plasticClass,
-        aiConfidence: 0,
+        aiConfidence: Number(aiStatus.match(/\((\d+)%\)/)?.[1] ?? 0),
       });
       setProposal(next);
+      setProposalPackets(DepositProposalService.encodeForQr('proposal', next));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -82,7 +137,10 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
         <TextInput
           style={styles.input}
           value={weightKg}
-          onChangeText={setWeightKg}
+          onChangeText={next => {
+            setWeightKg(next);
+            void reloadPricingPreview(next, plasticClass);
+          }}
           keyboardType="decimal-pad"
           placeholder="0.00"
         />
@@ -96,29 +154,36 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
         />
 
         <Text style={styles.label}>Class</Text>
-        <ClassSelector value={plasticClass} onChange={setPlasticClass} />
+        <ClassSelector
+          value={plasticClass}
+          onChange={next => {
+            setPlasticClass(next);
+            void reloadPricingPreview(weightKg, next);
+          }}
+        />
 
-        <Text style={styles.label}>Evidence hashes</Text>
-        {photoHashes.map((hash, index) => (
-          <View key={index} style={styles.hashRow}>
-            <TextInput
-              style={[styles.input, styles.hashInput]}
-              value={hash}
-              onChangeText={value => updatePhoto(index, value)}
-              autoCapitalize="none"
-              placeholder={`Photo hash ${index + 1}`}
-            />
-            <TouchableOpacity
-              style={styles.hashBtn}
-              onPress={() => void generateHash(index)}
-            >
-              <Text style={styles.hashBtnText}>Hash</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+        <View style={styles.rateCard}>
+          <Text style={styles.rateText}>Rate {ratePreview} /kg</Text>
+          <Text style={styles.creditText}>Credits {creditsPreview}</Text>
+        </View>
+
+        <Text style={styles.label}>Photo evidence (3 required)</Text>
+        <PhotoReviewStrip photos={photos} onCapture={i => void capturePhoto(i)} />
+        <Text style={styles.small}>
+          {photos.filter(Boolean).length}/3 captured
+        </Text>
+
+        <TouchableOpacity style={styles.secondaryBtn} onPress={runAiSuggest}>
+          <Text style={styles.secondaryBtnText}>Run AI class suggestion</Text>
+        </TouchableOpacity>
+        {aiStatus ? <Text style={styles.small}>{aiStatus}</Text> : null}
 
         <TouchableOpacity style={styles.primaryBtn} onPress={() => void createProposal()}>
-          <Text style={styles.primaryBtnText}>Create signed proposal</Text>
+          {busy ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text style={styles.primaryBtnText}>Create signed proposal</Text>
+          )}
         </TouchableOpacity>
         <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
           <Text style={styles.secondaryBtnText}>Back</Text>
@@ -127,7 +192,7 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {proposal ? (
           <View style={styles.output}>
-            <Text style={styles.outputTitle}>Customer signing payload</Text>
+            <Text style={styles.outputTitle}>Proposal JSON (fallback)</Text>
             <TextInput
               style={styles.outputText}
               value={proposalJson}
@@ -136,6 +201,9 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
               selectTextOnFocus
             />
           </View>
+        ) : null}
+        {proposalPackets.length ? (
+          <ChunkedQrPanel title="Proposal QR frames" packets={proposalPackets} />
         ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -147,6 +215,7 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, padding: 24, paddingTop: 48, backgroundColor: '#F7F7F7' },
   title: { fontSize: 28, fontWeight: '800', color: '#111', marginBottom: 16 },
   label: { color: '#333', fontSize: 14, fontWeight: '700', marginTop: 14, marginBottom: 6 },
+  small: { color: '#666', marginTop: 6, fontSize: 12 },
   input: {
     backgroundColor: '#FFF',
     borderColor: '#D6D6D6',
@@ -156,15 +225,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     color: '#111',
   },
-  hashRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  hashInput: { flex: 1 },
-  hashBtn: {
-    backgroundColor: '#111',
+  rateCard: {
+    marginTop: 8,
+    backgroundColor: '#FFF',
     borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: '#D6D6D6',
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  hashBtnText: { color: '#FFF', fontWeight: '700' },
+  rateText: { color: '#555', fontWeight: '700' },
+  creditText: { color: '#111', fontWeight: '900', fontSize: 18 },
   primaryBtn: {
     backgroundColor: '#0A7AFF',
     paddingVertical: 15,
