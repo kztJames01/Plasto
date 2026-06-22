@@ -17,7 +17,7 @@ export class OperatorService {
    * any phone self-issue a certificate to any plant.
    */
   static async provisionLocalOperator(
-    plantId: string,
+    _plantId: string,
   ): Promise<{ operatorPubkey: string }> {
     const kp = CryptoService.generateDeviceKeypair();
 
