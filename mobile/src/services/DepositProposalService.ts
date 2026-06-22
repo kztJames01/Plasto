@@ -4,6 +4,7 @@ import {
   CustomerSignedResponse,
   DepositProposal,
   EventPayload,
+  QRPacketKind,
   PlasticClass,
 } from '../types/events';
 import { Identity } from '../types/identity';
@@ -15,6 +16,7 @@ import { KeychainService } from './KeychainService';
 import { OperatorService } from './OperatorService';
 import { PhotoEvidenceService } from './PhotoEvidenceService';
 import { PriceService } from './PriceService';
+import { QRHandshakeService } from './QRHandshakeService';
 
 type CreateDepositInput = {
   customerPubkey: string;
@@ -118,6 +120,7 @@ export class DepositProposalService {
     for (const hash of cleanPhotoHashes) {
       await PhotoEvidenceService.storeEvidence(eventId, hash, 'deposit-photo');
     }
+    await EventStore.savePendingProposal(eventId, JSON.stringify(proposal));
 
     return proposal;
   }
@@ -218,5 +221,61 @@ export class DepositProposalService {
       proposal.eventId,
       proposal.photoHashes,
     );
+    await EventStore.removePendingProposal(proposal.eventId);
+  }
+
+  static async appendCustomerCopy(
+    proposal: DepositProposal,
+    response: CustomerSignedResponse,
+  ): Promise<void> {
+    if (proposal.eventId !== response.eventId) {
+      throw new Error('Cannot save customer copy, event id mismatch');
+    }
+    const payload = JSON.parse(proposal.payloadJson) as EventPayload['payload'];
+    await EventStore.appendPrepared(
+      {
+        eventId: proposal.eventId,
+        eventType: 'DEPOSIT',
+        payload,
+        customerPubkey: proposal.customerPubkey,
+        operatorPubkey: proposal.operatorPubkey,
+        customerSig: response.customerSig,
+        operatorSig: proposal.operatorSig,
+        photoHashes: proposal.photoHashes,
+        previousHash: proposal.previousHash,
+        eventHash: proposal.eventHash,
+        createdAtLocal: proposal.createdAtLocal,
+        synced: false,
+      },
+      proposal.payloadJson,
+    );
+  }
+
+  static encodeForQr(kind: QRPacketKind, value: DepositProposal | CustomerSignedResponse): string[] {
+    if (kind === 'proposal') {
+      return QRHandshakeService.proposalToPackets(value as DepositProposal);
+    }
+    return QRHandshakeService.responseToPackets(value as CustomerSignedResponse);
+  }
+
+  static decodeProposalQr(rawFrames: string[]) {
+    return QRHandshakeService.decodeProposal(rawFrames);
+  }
+
+  static decodeResponseQr(rawFrames: string[]) {
+    return QRHandshakeService.decodeResponse(rawFrames);
+  }
+
+  static async getPendingProposals(): Promise<DepositProposal[]> {
+    const rows = await EventStore.getPendingProposals();
+    return rows
+      .map(row => {
+        try {
+          return JSON.parse(row) as DepositProposal;
+        } catch {
+          return null;
+        }
+      })
+      .filter((v): v is DepositProposal => v !== null);
   }
 }

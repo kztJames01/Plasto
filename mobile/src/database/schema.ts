@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS photo_evidence (
   uploaded INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS pending_proposals (
+  event_id TEXT PRIMARY KEY,
+  proposal_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS crash_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp INTEGER NOT NULL,
@@ -89,6 +95,13 @@ export const MIGRATIONS: string[] = [
     local_uri TEXT,
     created_at INTEGER NOT NULL,
     uploaded INTEGER DEFAULT 0
+  );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS pending_proposals (
+    event_id TEXT PRIMARY KEY,
+    proposal_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
   );
   `,
 ];

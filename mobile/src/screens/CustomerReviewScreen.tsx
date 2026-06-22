@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Modal,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -7,9 +8,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Vibration,
   View,
 } from 'react-native';
 
+import { ChunkedQrPanel } from '../components/ChunkedQrPanel';
+import { QrScanSheet } from '../components/QrScanSheet';
 import { DepositProposalService } from '../services/DepositProposalService';
 import { CryptoService } from '../services/CryptoService';
 import { DepositProposal } from '../types/events';
@@ -27,8 +31,12 @@ export const CustomerReviewScreen: React.FC<Props> = ({ identity, onBack }) => {
   );
   const [proposalJson, setProposalJson] = useState('');
   const [responseJson, setResponseJson] = useState('');
+  const [responsePackets, setResponsePackets] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [proposal, setProposal] = useState<DepositProposal | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [, setScanFrames] = useState<string[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const review = () => {
     setError('');
@@ -36,12 +44,59 @@ export const CustomerReviewScreen: React.FC<Props> = ({ identity, onBack }) => {
     try {
       const parsed = JSON.parse(proposalJson) as DepositProposal;
       setProposal(parsed);
-      const response = DepositProposalService.signProposal(parsed, identity);
-      setResponseJson(JSON.stringify(response, null, 2));
+      setReviewOpen(true);
     } catch (err) {
       setProposal(null);
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const approve = async () => {
+    if (!proposal) {
+      return;
+    }
+    setError('');
+    try {
+      const response = DepositProposalService.signProposal(proposal, identity);
+      await DepositProposalService.appendCustomerCopy(proposal, response);
+      const raw = JSON.stringify(response, null, 2);
+      setResponseJson(raw);
+      setResponsePackets(DepositProposalService.encodeForQr('response', response));
+      setReviewOpen(false);
+      Vibration.vibrate(220);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const reject = () => {
+    setReviewOpen(false);
+    setResponseJson('');
+    setResponsePackets([]);
+    setError('Proposal rejected by customer');
+  };
+
+  const addFrame = (raw: string) => {
+    if (!raw) {
+      return;
+    }
+    setScanFrames(curr => {
+      if (curr.includes(raw)) {
+        return curr;
+      }
+      const next = [...curr, raw];
+      const decoded = DepositProposalService.decodeProposalQr(next);
+      if (decoded.complete && decoded.value) {
+        const rawJson = JSON.stringify(decoded.value, null, 2);
+        setProposalJson(rawJson);
+        setProposal(decoded.value);
+        setScannerOpen(false);
+        setError('');
+      } else {
+        setError(`Scanning proposal frame ${decoded.got}/${decoded.total || '?'}...`);
+      }
+      return next;
+    });
   };
 
   return (
@@ -52,6 +107,9 @@ export const CustomerReviewScreen: React.FC<Props> = ({ identity, onBack }) => {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Review deposit</Text>
         <Text style={styles.meta}>Wallet {customerPubkey.slice(0, 28)}...</Text>
+        <TouchableOpacity style={styles.secondaryBtn} onPress={() => setScannerOpen(true)}>
+          <Text style={styles.secondaryBtnText}>Scan proposal QR</Text>
+        </TouchableOpacity>
         <Text style={styles.label}>Operator proposal JSON</Text>
         <TextInput
           style={styles.textArea}
@@ -69,7 +127,7 @@ export const CustomerReviewScreen: React.FC<Props> = ({ identity, onBack }) => {
           </View>
         ) : null}
         <TouchableOpacity style={styles.primaryBtn} onPress={review}>
-          <Text style={styles.primaryBtnText}>Sign acceptance</Text>
+          <Text style={styles.primaryBtnText}>Review and approve</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
           <Text style={styles.secondaryBtnText}>Back</Text>
@@ -87,7 +145,34 @@ export const CustomerReviewScreen: React.FC<Props> = ({ identity, onBack }) => {
             />
           </>
         ) : null}
+        {responsePackets.length ? (
+          <ChunkedQrPanel title="Customer response QR" packets={responsePackets} />
+        ) : null}
       </ScrollView>
+      <QrScanSheet
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={addFrame}
+      />
+      <Modal visible={reviewOpen} transparent animationType="fade">
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm details</Text>
+            <Text style={styles.modalLine}>Credits: {proposal?.credits}</Text>
+            <Text style={styles.modalLine}>Weight: {proposal?.weightKg} kg</Text>
+            <Text style={styles.modalLine}>Class: {proposal?.plasticClass}</Text>
+            <Text style={styles.modalLine}>Plant: {proposal?.plantId}</Text>
+            <View style={styles.modalRow}>
+              <TouchableOpacity style={styles.rejectBtn} onPress={reject}>
+                <Text style={styles.rejectTxt}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.approveBtn} onPress={() => void approve()}>
+                <Text style={styles.approveTxt}>Approve</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -132,4 +217,18 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 12,
   },
+  modalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: 22,
+  },
+  modalCard: { backgroundColor: '#FFF', borderRadius: 12, padding: 16 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#111', marginBottom: 10 },
+  modalLine: { color: '#333', marginBottom: 4, fontSize: 15 },
+  modalRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  rejectBtn: { flex: 1, backgroundColor: '#EEE', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  approveBtn: { flex: 1, backgroundColor: '#0A7AFF', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  rejectTxt: { color: '#333', fontWeight: '800' },
+  approveTxt: { color: '#FFF', fontWeight: '800' },
 });

@@ -275,6 +275,28 @@ export class EventStore {
     return cert.floatCap - consumed;
   }
 
+  static async savePendingProposal(eventId: string, proposalJson: string): Promise<void> {
+    const db = await getDatabase();
+    db.execute(
+      `INSERT OR REPLACE INTO pending_proposals(event_id, proposal_json, created_at)
+       VALUES (?, ?, ?)`,
+      [eventId, proposalJson, Date.now()],
+    );
+  }
+
+  static async removePendingProposal(eventId: string): Promise<void> {
+    const db = await getDatabase();
+    db.execute(`DELETE FROM pending_proposals WHERE event_id = ?`, [eventId]);
+  }
+
+  static async getPendingProposals(): Promise<string[]> {
+    const db = await getDatabase();
+    const rows = db.execute(
+      `SELECT proposal_json FROM pending_proposals ORDER BY created_at DESC`,
+    ).rows?._array;
+    return (rows ?? []).map(r => String(r.proposal_json));
+  }
+
   private static rowToEvent(row: any): EventPayload {
     return {
       eventId: row.event_id,

@@ -70,3 +70,14 @@ export interface CustomerSignedResponse {
   customerSig: string;
   acceptedAtLocal: number;
 }
+
+export type QRPacketKind = 'proposal' | 'response';
+
+export interface QRPacket {
+  v: 1;
+  kind: QRPacketKind;
+  eventId: string;
+  total: number;
+  index: number;
+  data: string;
+}
