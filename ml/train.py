@@ -17,7 +17,7 @@ MODELS = ROOT / "models"
 REPORTS = ROOT / "reports"
 CLASSES = ["clean_pet", "dirty_film_foam", "mixed_hdpe", "reject"]
 SEED = 42
-IMAGE_SIZE = 192
+IMAGE_SIZE = 224
 BATCH_SIZE = 24
 
 
@@ -206,10 +206,10 @@ def main():
     )
 
     base.trainable = True
-    for layer in base.layers[:-45]:
+    for layer in base.layers[:-70]:
         layer.trainable = False
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-5),
+        optimizer=tf.keras.optimizers.Adam(7e-6),
         loss="sparse_categorical_crossentropy",
         metrics=["accuracy"],
     )

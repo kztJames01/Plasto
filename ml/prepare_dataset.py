@@ -15,10 +15,16 @@ MIN_BOX = 48
 
 LABEL_MAP = {
     "101_PET_Bottle": "clean_pet",
+    "105_Plastic_Container": "clean_pet",
     "102_HDPE_Plastic": "mixed_hdpe",
     "104_Soft_Plastic": "dirty_film_foam",
-    "501_Contaminated": "dirty_film_foam",
+    "505_Food_Wrapper": "dirty_film_foam",
     "514_Ikat_Tepi": "dirty_film_foam",
+}
+SKIP_CATEGORIES = {
+    "contaminated",
+    "disposable_cup",
+    "mask",
 }
 CLASSES = ["clean_pet", "mixed_hdpe", "dirty_film_foam", "reject"]
 
@@ -29,6 +35,8 @@ def normalize(name: str) -> str:
 
 def mapped_label(category_name: str) -> str:
     normalized = normalize(category_name)
+    if normalized in SKIP_CATEGORIES:
+        return ""
     for source, target in LABEL_MAP.items():
         if normalize(source) in normalized or normalized in normalize(source):
             return target
@@ -90,6 +98,9 @@ def main():
             bbox = ann.get("bbox")
             if not image_info or not category or not bbox or len(bbox) != 4:
                 continue
+            label = mapped_label(category)
+            if not label:
+                continue
             x, y, w, h = [int(round(v)) for v in bbox]
             if w < MIN_BOX or h < MIN_BOX:
                 continue
@@ -97,7 +108,6 @@ def main():
             if image_path is None:
                 missing += 1
                 continue
-            label = mapped_label(category)
             source_key = f"{coco_path.parent.name}/{image_info['file_name']}"
             split = split_for_source(source_key)
             try:

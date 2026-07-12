@@ -22,3 +22,12 @@ mobile/coverage/
 .vscode/
 
 Documents/
+
+ml/.venv/
+ml/data/
+ml/models/*
+!ml/models/metadata.json
+!ml/models/plasto_cascade_mobilenetv3_float16.tflite
+ml/reports/
+ml/.mpl-cache/
+ml/__pycache__/

@@ -1,0 +1,29 @@
+{
+  "model_file": "plasto_cascade_mobilenetv3_float16.tflite",
+  "model_sha256": "93a1294dde21602d01ac8ca810b85021f017159e577aa9c0d0fbe48085b3beb6",
+  "labels": [
+    "clean_pet",
+    "dirty_film_foam",
+    "mixed_hdpe",
+    "reject"
+  ],
+  "plastic_threshold": 0.6200000000000004,
+  "business_mapping": {
+    "clean_pet": "A",
+    "mixed_hdpe": "B",
+    "dirty_film_foam": "C",
+    "reject": null
+  },
+  "input_size": 224,
+  "input_dtype": "float32",
+  "output_dtype": "float32",
+  "outputs": {
+    "class_probabilities": 4,
+    "plastic_probability": 1
+  },
+  "decision": "if plastic_probability is below the threshold, reject; otherwise use the highest of the first three class probabilities",
+  "test_accuracy": 0.9416058394160584,
+  "test_macro_f1": 0.9309949987900299,
+  "exported_test_accuracy": 0.9440389294403893,
+  "exported_test_macro_f1": 0.9318422013143566
+}
