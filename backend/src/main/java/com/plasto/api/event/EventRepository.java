@@ -1,5 +1,6 @@
 package com.plasto.api.event;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,4 +21,9 @@ public interface EventRepository extends JpaRepository<EventRecord, UUID> {
 	boolean existsByPhotoHashesContaining(String photoHash);
 
 	long countByCustomerPubkey(String customerPubkey);
+
+	List<EventRecord> findByCustomerPubkeyAndCreatedAtLocalGreaterThanOrderByCreatedAtLocalAsc(
+		String customerPubkey,
+		long after
+	);
 }

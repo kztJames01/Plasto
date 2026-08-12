@@ -1,5 +1,7 @@
 package com.plasto.api.web;
+
 import java.util.Map;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -7,8 +9,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1")
 public class HealthController {
+
 	@GetMapping("/health")
-	public Map<String, Object> health() {
-		return Map.of("ok", true, "service", "plasto-api");
+	public Map<String, String> health() {
+		return Map.of("status", "ok");
 	}
 }
