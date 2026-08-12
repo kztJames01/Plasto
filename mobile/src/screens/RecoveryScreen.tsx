@@ -11,10 +11,11 @@ import {
 } from 'react-native';
 import { CryptoService } from '../services/CryptoService';
 import { KeychainService } from '../services/KeychainService';
+import { SyncService } from '../services/SyncService';
 import { Identity } from '../types/identity';
 import { Buffer } from 'buffer';
 
-const API_BASE = 'http://localhost:8080/api/v1';
+import { API_BASE } from '../config/api';
 
 interface Props {
   onComplete: (identity: Identity) => void;
@@ -64,6 +65,11 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
 
         if (!response.ok && response.status !== 404) {
           console.log('Recovery sync response:', response.status);
+        } else {
+          const imported = await SyncService.pull(publicKeyBase58);
+          if (imported > 0) {
+            console.log(`Recovered ${imported} events from cloud`);
+          }
         }
       } catch (e) {
         console.log('Sync failed (offline?):', e);

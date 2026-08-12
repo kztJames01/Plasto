@@ -11,9 +11,8 @@ import {
 import { QRDisplay } from '../components/QRDisplay';
 import { BalanceService } from '../services/BalanceService';
 import { CryptoService } from '../services/CryptoService';
+import { SyncService } from '../services/SyncService';
 import { Identity } from '../types/identity';
-
-const API_BASE = 'http://localhost:8080/api/v1';
 
 type HomeScreenProps = {
   identity: Identity;
@@ -42,22 +41,6 @@ function formatLastUpdated(updatedAt: number | null): string {
   return `${days}d ago`;
 }
 
-async function tryOnlineSync(pubkey: string): Promise<boolean> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 4000);
-  try {
-    // This ping doubles as a lightweight online check.
-    const response = await fetch(`${API_BASE}/users/${pubkey}/recover`, {
-      method: 'POST',
-      signal: controller.signal as never,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(t);
-  }
-}
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   identity,
@@ -90,7 +73,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const online = await tryOnlineSync(pubkey);
+      const online = await SyncService.isOnline();
+      if (online) {
+        await SyncService.pull(pubkey);
+      }
       await BalanceService.recalculate(pubkey);
       const snap = await BalanceService.getSnapshot(pubkey);
       setBalance(snap.balance);

@@ -169,6 +169,35 @@ export class EventStore {
     );
   }
 
+  static async getLatestCustomerEventTime(pubkey: string): Promise<number> {
+    const db = await getDatabase();
+    const row = db.execute(
+      `SELECT MAX(created_at_local) AS ts FROM events WHERE customer_pubkey = ?`,
+      [pubkey],
+    ).rows?._array?.[0];
+    return Number(row?.ts ?? 0);
+  }
+
+  static async hasEvent(eventId: string): Promise<boolean> {
+    const db = await getDatabase();
+    const row = db.execute(`SELECT 1 AS ok FROM events WHERE event_id = ? LIMIT 1`, [
+      eventId,
+    ]).rows?._array?.[0];
+    return Boolean(row?.ok);
+  }
+
+  static async importRemoteEvents(events: EventPayload[]): Promise<number> {
+    let added = 0;
+    for (const event of events) {
+      if (await EventStore.hasEvent(event.eventId)) {
+        continue;
+      }
+      await EventStore.appendPrepared({ ...event, synced: true });
+      added += 1;
+    }
+    return added;
+  }
+
   static async getEventsForCustomer(pubkey: string): Promise<EventPayload[]> {
     const db = await getDatabase();
     const result = db.execute(

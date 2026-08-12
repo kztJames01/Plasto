@@ -14,6 +14,13 @@ export type PhotoEvidenceInput = {
   note?: string;
 };
 
+export type PendingPhoto = {
+  photoHash: string;
+  eventId: string | null;
+  localUri: string;
+  label: string;
+};
+
 const SHA256_HEX_RE = /^[A-Fa-f0-9]{64}$/;
 
 export class PhotoEvidenceService {
@@ -76,5 +83,36 @@ export class PhotoEvidenceService {
         hash,
       ]);
     }
+  }
+
+  static async getPendingUploads(limit: number): Promise<PendingPhoto[]> {
+    const db = await getDatabase();
+    const result = db.execute(
+      `SELECT photo_hash, event_id, local_uri, label
+       FROM photo_evidence
+       WHERE uploaded = 0 AND local_uri IS NOT NULL
+       ORDER BY created_at ASC
+       LIMIT ?`,
+      [limit],
+    );
+    return (result.rows?._array ?? []).map(row => ({
+      photoHash: String(row.photo_hash),
+      eventId: row.event_id ? String(row.event_id) : null,
+      localUri: String(row.local_uri),
+      label: String(row.label),
+    }));
+  }
+
+  static async countPendingUploads(): Promise<number> {
+    const db = await getDatabase();
+    const row = db.execute(
+      `SELECT COUNT(*) AS count FROM photo_evidence WHERE uploaded = 0 AND local_uri IS NOT NULL`,
+    ).rows?._array?.[0];
+    return Number(row?.count ?? 0);
+  }
+
+  static async markUploaded(hash: string): Promise<void> {
+    const db = await getDatabase();
+    db.execute(`UPDATE photo_evidence SET uploaded = 1 WHERE photo_hash = ?`, [hash]);
   }
 }

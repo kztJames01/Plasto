@@ -3,8 +3,15 @@ import { EventStore } from './EventStore';
 import { OperatorCertificate } from '../types/events';
 import { CryptoService } from './CryptoService';
 import { KeychainService } from './KeychainService';
+import { API_BASE } from '../config/api';
 
-const API_BASE = 'http://localhost:8080/api/v1';
+export type CloudFloatStatus = {
+  operatorPubkey: string;
+  plantId: string;
+  cap: number;
+  consumed: number;
+  remaining: number;
+};
 
 export class OperatorService {
   /**
@@ -74,6 +81,24 @@ export class OperatorService {
     }
 
     return EventStore.getRemainingFloat(cert.operatorPubkey);
+  }
+
+  static async fetchCloudFloat(): Promise<CloudFloatStatus | null> {
+    const cert = await this.getLocalCertificate();
+    if (!cert) {
+      return null;
+    }
+    try {
+      const response = await fetch(
+        `${API_BASE}/operators/${encodeURIComponent(cert.operatorPubkey)}/float`,
+      );
+      if (!response.ok) {
+        return null;
+      }
+      return (await response.json()) as CloudFloatStatus;
+    } catch {
+      return null;
+    }
   }
   /**
    * Re-syncs an already-activated certificate to the cloud. The cert must

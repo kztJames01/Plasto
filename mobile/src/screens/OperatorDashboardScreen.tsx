@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 
 import { EventStore } from '../services/EventStore';
 import { OperatorService } from '../services/OperatorService';
+import { SyncService } from '../services/SyncService';
 
 type Props = {
   onNewDeposit: () => void;
@@ -18,6 +19,7 @@ export const OperatorDashboardScreen: React.FC<Props> = ({
   onRefresh,
 }) => {
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [floatCap, setFloatCap] = useState(0);
   const [operatorKey, setOperatorKey] = useState('');
   const [plantId, setPlantId] = useState('');
   const [unsynced, setUnsynced] = useState(0);
@@ -25,14 +27,18 @@ export const OperatorDashboardScreen: React.FC<Props> = ({
 
   const load = useCallback(async () => {
     const cert = await OperatorService.getLocalCertificate();
-    setRemaining(await OperatorService.getRemainingFloat());
+    const localRemaining = await OperatorService.getRemainingFloat();
+    const cloud = await OperatorService.fetchCloudFloat();
+    setRemaining(cloud?.remaining ?? localRemaining);
+    setFloatCap(cloud?.cap ?? cert?.floatCap ?? 0);
     setUnsynced(await EventStore.countUnsynced());
     setOperatorKey(cert?.operatorPubkey ?? '');
-    setPlantId(cert?.plantId ?? '');
+    setPlantId(cloud?.plantId ?? cert?.plantId ?? '');
   }, []);
 
   useEffect(() => {
     load().catch(err => setNote(String(err.message ?? err)));
+    SyncService.autoSyncIfOnline().catch(() => undefined);
   }, [load]);
 
   const syncCertificate = async () => {
@@ -41,14 +47,24 @@ export const OperatorDashboardScreen: React.FC<Props> = ({
     setNote('Certificate sync attempted');
   };
 
+  const usedPct =
+    floatCap > 0 && remaining != null
+      ? Math.min(100, Math.max(0, ((floatCap - remaining) / floatCap) * 100))
+      : 0;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Operator</Text>
       <View style={styles.panel}>
         <Text style={styles.label}>Plant</Text>
         <Text style={styles.value}>{plantId || 'Not registered'}</Text>
-        <Text style={styles.label}>Remaining float</Text>
+        <Text style={styles.label}>Float remaining</Text>
         <Text style={styles.balance}>{remaining ?? '...'}</Text>
+        <Text style={styles.small}>Cap {floatCap} credits</Text>
+        <View style={styles.floatBarBg}>
+          <View style={[styles.floatBarFill, { width: `${usedPct}%` }]} />
+        </View>
+        <Text style={styles.small}>Used {Math.round(usedPct)}%</Text>
         <Text style={styles.small}>Key {operatorKey ? `${operatorKey.slice(0, 24)}...` : '-'}</Text>
         <Text style={styles.small}>Unsynced events: {unsynced}</Text>
       </View>
@@ -87,6 +103,17 @@ const styles = StyleSheet.create({
   value: { color: '#111', fontSize: 18, fontWeight: '700', marginTop: 2 },
   balance: { color: '#111', fontSize: 42, fontWeight: '900', marginTop: 2 },
   small: { color: '#555', fontSize: 13, marginTop: 8 },
+  floatBarBg: {
+    height: 10,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 6,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  floatBarFill: {
+    height: 10,
+    backgroundColor: '#0A7AFF',
+  },
   primaryBtn: {
     backgroundColor: '#0A7AFF',
     paddingVertical: 15,
