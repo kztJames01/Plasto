@@ -41,12 +41,11 @@ public class SignatureVerifier {
 	}
 
 	/**
-	 * Decode a public key or signature. The format must be specified via one
-	 * of the {@code base64:}, {@code base64url:}, {@code hex:}, or
-	 * {@code base58:} prefixes. Unprefixed inputs are accepted only as
-	 * pure-hex (since hex is the only encoding that is unambiguous to a
-	 * strict matcher) to prevent an attacker from crafting a value that is
-	 * decoded as one encoding on the client and a different one here.
+	 * Decode a public key or signature. Prefixed forms are preferred:
+	 * {@code base64:}, {@code base64url:}, {@code hex:}, {@code base58:}.
+	 * Unprefixed values are also accepted for mobile clients that store raw
+	 * base58 pubkeys and raw base64 signatures locally and sign over those
+	 * exact strings — the wire values must match the signed payload.
 	 */
 	private static byte[] decodeFlexible(String value) {
 		if (value == null || value.isBlank()) {
@@ -66,14 +65,41 @@ public class SignatureVerifier {
 		if (lower.startsWith("base58:")) {
 			return decodeBase58(text.substring(7));
 		}
-		// Unprefixed input: accept only pure hex (length must be even, 2..128).
-		// Falling through to base64/base58 detection would be ambiguous: e.g.
-		// "abcdef" can be decoded as 3 raw bytes, so an attacker could craft a
-		// value that means one thing on the device and another on the server.
 		if (text.matches("[0-9a-fA-F]+") && text.length() >= 2 && text.length() % 2 == 0) {
 			return hexToBytes(text);
 		}
+
+		// Unprefixed mobile wire format: try base64 first (signatures are 64
+		// bytes / ~88 chars), then base58 (pubkeys are 32 bytes).
+		if (text.matches("^[A-Za-z0-9+/]+={0,2}$") && text.length() % 4 == 0) {
+			try {
+				byte[] decoded = Base64.getDecoder().decode(text);
+				if (decoded.length == 32 || decoded.length == 64) {
+					return decoded;
+				}
+			} catch (IllegalArgumentException ignored) {
+				// fall through to base58
+			}
+		}
+		if (isBase58(text)) {
+			byte[] decoded = decodeBase58(text);
+			if (decoded.length == 32 || decoded.length == 64) {
+				return decoded;
+			}
+		}
 		throw new IllegalArgumentException("unsupported key/signature encoding; use base64:, base64url:, hex:, or base58:");
+	}
+
+	private static boolean isBase58(String text) {
+		if (text.isEmpty()) {
+			return false;
+		}
+		for (int i = 0; i < text.length(); i++) {
+			if (BASE58_ALPHABET.indexOf(text.charAt(i)) < 0) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static byte[] wrapRawEd25519PublicKey(byte[] rawKey) {

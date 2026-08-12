@@ -1,12 +1,15 @@
 package com.plasto.api.photo;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -28,11 +31,13 @@ public class PhotoStorageService {
 	private final PhotoUploadRepository repository;
 	private final String uploadBaseUrl;
 	private final byte[] signingKey;
+	private final Path localStore;
 
 	public PhotoStorageService(
 		PhotoUploadRepository repository,
 		@Value("${plasto.photos.upload-base-url:http://localhost:8080/local-photo-upload}") String uploadBaseUrl,
-		@Value("${plasto.photos.signing-key:dev-only-do-not-use-in-prod}") String signingKey
+		@Value("${plasto.photos.signing-key:dev-only-do-not-use-in-prod}") String signingKey,
+		@Value("${plasto.photos.local-store:./data/photo-uploads}") String localStore
 	) {
 		this.repository = repository;
 		this.uploadBaseUrl = uploadBaseUrl.replaceAll("/+$", "");
@@ -40,6 +45,7 @@ public class PhotoStorageService {
 		if (this.signingKey.length < 32) {
 			throw new IllegalStateException("plasto.photos.signing-key must be at least 32 bytes");
 		}
+		this.localStore = Path.of(localStore).toAbsolutePath().normalize();
 	}
 
 	@Transactional
@@ -55,6 +61,7 @@ public class PhotoStorageService {
 		Instant expiresAt = Instant.now().plus(15, ChronoUnit.MINUTES);
 		String objectKey = "photos/" + hash.substring(0, 2) + "/" + hash + ".jpg";
 		String signature = sign(objectKey, contentType, expiresAt);
+		String completeToken = signCompleteToken(hash, objectKey, expiresAt);
 		String uploadUrl = "%s/%s?expires=%d&ct=%s&sig=%s".formatted(
 			uploadBaseUrl, objectKey, expiresAt.getEpochSecond(),
 			java.net.URLEncoder.encode(contentType, StandardCharsets.UTF_8),
@@ -67,9 +74,12 @@ public class PhotoStorageService {
 		upload.setObjectKey(objectKey);
 		upload.setUploadUrl(uploadUrl);
 		upload.setExpiresAt(expiresAt);
+		upload.setCompleteToken(completeToken);
+		upload.setUploaded(false);
+		upload.setReceivedBytes(0);
 		repository.save(upload);
 
-		return new PhotoPresignResponse(hash, objectKey, uploadUrl, expiresAt);
+		return new PhotoPresignResponse(hash, objectKey, uploadUrl, expiresAt, completeToken);
 	}
 
 	public boolean verifySignature(String objectKey, String contentType, long expiresEpochSecond, String signatureHex) {
@@ -82,6 +92,66 @@ public class PhotoStorageService {
 		}
 		String expected = sign(objectKey, contentType, expires);
 		return constantTimeEquals(expected, signatureHex.toLowerCase(Locale.ROOT));
+	}
+
+	@Transactional
+	public long storeLocalUpload(String objectKey, byte[] body) {
+		if (body == null || body.length == 0) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "empty upload body");
+		}
+		if (body.length > 15_000_000) {
+			throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "photo too large");
+		}
+		PhotoUpload upload = repository.findByObjectKey(objectKey)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "presigned upload not found"));
+		if (Instant.now().isAfter(upload.getExpiresAt())) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "upload URL expired");
+		}
+		try {
+			Path target = localStore.resolve(upload.getPhotoHash() + ".bin").normalize();
+			if (!target.startsWith(localStore)) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "bad object path");
+			}
+			Files.createDirectories(localStore);
+			Files.write(target, body);
+		} catch (ResponseStatusException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "failed to store photo");
+		}
+		upload.setReceivedBytes(body.length);
+		repository.save(upload);
+		return body.length;
+	}
+
+	@Transactional
+	public PhotoUpload completeUpload(String hash, String completeToken, long claimedBytes) {
+		String normalized = hash.toLowerCase(Locale.ROOT);
+		PhotoUpload upload = repository.findById(normalized)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "presigned upload not found"));
+		if (upload.getCompleteToken() == null || !constantTimeEquals(upload.getCompleteToken(), completeToken)) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid complete token");
+		}
+		if (Instant.now().isAfter(upload.getExpiresAt())) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "upload expired");
+		}
+		if (upload.getReceivedBytes() <= 0) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "photo bytes were not received");
+		}
+		if (claimedBytes > 0 && claimedBytes != upload.getReceivedBytes()) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "byte count mismatch");
+		}
+		Path stored = localStore.resolve(upload.getPhotoHash() + ".bin");
+		if (!Files.isRegularFile(stored)) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "photo file missing on server");
+		}
+		upload.setUploaded(true);
+		repository.save(upload);
+		return upload;
+	}
+
+	private String signCompleteToken(String hash, String objectKey, Instant expiresAt) {
+		return sign("complete|" + hash + "|" + objectKey, "token", expiresAt);
 	}
 
 	private String sign(String objectKey, String contentType, Instant expiresAt) {

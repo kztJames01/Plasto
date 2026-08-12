@@ -28,6 +28,12 @@ public class PhotoUpload {
 	@Column(nullable = false)
 	private boolean uploaded;
 
+	@Column(nullable = false)
+	private long receivedBytes;
+
+	@Column(columnDefinition = "TEXT")
+	private String completeToken;
+
 	public String getPhotoHash() { return photoHash; }
 	public void setPhotoHash(String photoHash) { this.photoHash = photoHash; }
 	public UUID getEventId() { return eventId; }
@@ -42,4 +48,8 @@ public class PhotoUpload {
 	public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
 	public boolean isUploaded() { return uploaded; }
 	public void setUploaded(boolean uploaded) { this.uploaded = uploaded; }
+	public long getReceivedBytes() { return receivedBytes; }
+	public void setReceivedBytes(long receivedBytes) { this.receivedBytes = receivedBytes; }
+	public String getCompleteToken() { return completeToken; }
+	public void setCompleteToken(String completeToken) { this.completeToken = completeToken; }
 }

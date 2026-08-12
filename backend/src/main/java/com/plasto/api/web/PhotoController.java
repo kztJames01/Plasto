@@ -3,20 +3,17 @@ package com.plasto.api.web;
 import java.util.Locale;
 import java.util.Map;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.plasto.api.photo.PhotoPresignRequest;
 import com.plasto.api.photo.PhotoPresignResponse;
 import com.plasto.api.photo.PhotoStorageService;
 import com.plasto.api.photo.PhotoUpload;
 import com.plasto.api.photo.PhotoUploadCompleteRequest;
-import com.plasto.api.photo.PhotoUploadRepository;
 
 import jakarta.validation.Valid;
 
@@ -25,11 +22,9 @@ import jakarta.validation.Valid;
 public class PhotoController {
 
 	private final PhotoStorageService service;
-	private final PhotoUploadRepository repository;
 
-	public PhotoController(PhotoStorageService service, PhotoUploadRepository repository) {
+	public PhotoController(PhotoStorageService service) {
 		this.service = service;
-		this.repository = repository;
 	}
 
 	@PostMapping("/presigned")
@@ -38,21 +33,21 @@ public class PhotoController {
 	}
 
 	/**
-	 * Client calls this after PUTing bytes to the presigned URL. The server
-	 * flips the upload record to uploaded=true so downstream readers (e.g. the
-	 * sync flow) can rely on the photo existing at the object key.
+	 * Client calls this after PUTing bytes to the presigned URL. Requires the
+	 * completeToken from presign and verifies bytes landed on disk.
 	 */
 	@PostMapping("/complete")
 	public ResponseEntity<Map<String, Object>> complete(@Valid @RequestBody PhotoUploadCompleteRequest req) {
-		String hash = req.hash().toLowerCase(Locale.ROOT);
-		PhotoUpload upload = repository.findById(hash)
-			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "presigned upload not found"));
-		upload.setUploaded(true);
-		repository.save(upload);
+		PhotoUpload upload = service.completeUpload(
+			req.hash().toLowerCase(Locale.ROOT),
+			req.completeToken(),
+			req.bytes()
+		);
 		return ResponseEntity.ok(Map.of(
 			"hash", upload.getPhotoHash(),
 			"uploaded", true,
-			"bytes", req.bytes()
+			"bytes", upload.getReceivedBytes(),
+			"objectKey", upload.getObjectKey()
 		));
 	}
 }

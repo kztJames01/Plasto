@@ -23,6 +23,8 @@ mobile/coverage/
 
 Documents/
 
+backend/data/
+
 ml/.venv/
 ml/data/
 ml/models/*

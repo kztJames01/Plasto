@@ -6,8 +6,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -25,6 +27,12 @@ public class GlobalExceptionHandler {
 				.body(new ApiErrorBody("VALIDATION", msg, null));
 	}
 
+	@ExceptionHandler(MissingRequestHeaderException.class)
+	public ResponseEntity<ApiErrorBody> missingHeader(MissingRequestHeaderException ex) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+			.body(new ApiErrorBody("UNAUTHORIZED", "missing required header: " + ex.getHeaderName(), null));
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<ApiErrorBody> badRequest(IllegalArgumentException ex) {
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -35,6 +43,12 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiErrorBody> responseStatus(ResponseStatusException ex) {
 		return ResponseEntity.status(ex.getStatusCode())
 			.body(new ApiErrorBody("HTTP_ERROR", ex.getReason(), null));
+	}
+
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiErrorBody> missingResource(NoResourceFoundException ex) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+			.body(new ApiErrorBody("NOT_FOUND", "resource not found", null));
 	}
 
 	@ExceptionHandler(Exception.class)

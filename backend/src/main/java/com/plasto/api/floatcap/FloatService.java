@@ -33,6 +33,20 @@ public class FloatService {
 		repository.save(opFloat);
 	}
 
+	public void validateBatch(String operatorPubkey, String plantId, long credits) {
+		if (credits <= 0) {
+			return;
+		}
+		OperatorFloat opFloat = repository.findById(operatorPubkey)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "operator float not initialized"));
+		if (!opFloat.getPlantId().equals(plantId)) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "operator float plant mismatch");
+		}
+		if (credits > opFloat.getCap() - opFloat.getConsumed()) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "operator float exceeded");
+		}
+	}
+
 	public void consume(String operatorPubkey, String plantId, long credits) {
 		if (credits <= 0) {
 			return;

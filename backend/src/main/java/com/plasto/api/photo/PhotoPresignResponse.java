@@ -6,6 +6,7 @@ public record PhotoPresignResponse(
 	String hash,
 	String objectKey,
 	String uploadUrl,
-	Instant expiresAt
+	Instant expiresAt,
+	String completeToken
 ) {
 }

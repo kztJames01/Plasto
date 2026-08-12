@@ -4,8 +4,8 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -22,8 +22,8 @@ public class FloatController {
 		this.repository = repository;
 	}
 
-	@GetMapping("/{pubkey}/float")
-	public Map<String, Object> getFloat(@PathVariable String pubkey) {
+	@GetMapping("/float")
+	public Map<String, Object> getFloat(@RequestParam("pubkey") String pubkey) {
 		OperatorFloat opFloat = repository.findById(pubkey)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "operator float not found"));
 		long remaining = Math.max(0L, opFloat.getCap() - opFloat.getConsumed());

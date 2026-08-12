@@ -109,7 +109,10 @@ public class CertificateService {
 	public OperatorCertificate requireValidCertificate(String operatorPubkey) {
 		return getActiveCertificate(operatorPubkey)
 			.filter(this::isValid)
-			.orElseThrow(() -> new IllegalArgumentException("Invalid or missing operator certificate"));
+			.orElseThrow(() -> new ResponseStatusException(
+				HttpStatus.UNAUTHORIZED,
+				"Invalid or missing operator certificate"
+			));
 	}
 
 	private boolean isValid(OperatorCertificate cert) {

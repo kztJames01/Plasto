@@ -91,8 +91,11 @@ public class EventSyncService {
 			acknowledged.add(event.eventId().toString());
 		}
 
-		creditsByOperator.forEach((operatorPubkey, credits) ->
-			floatService.consume(operatorPubkey, plantByOperator.get(operatorPubkey), credits));
+		creditsByOperator.forEach((operatorPubkey, credits) -> {
+			String plantId = plantByOperator.get(operatorPubkey);
+			floatService.validateBatch(operatorPubkey, plantId, credits);
+			floatService.consume(operatorPubkey, plantId, credits);
+		});
 
 		return new SyncBatchResponse(acknowledged, duplicates, acknowledged.size() - duplicates.size(), duplicates.size());
 	}

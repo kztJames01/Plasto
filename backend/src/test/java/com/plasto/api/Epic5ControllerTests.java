@@ -2,6 +2,7 @@ package com.plasto.api;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -23,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @SpringBootTest
@@ -45,7 +47,7 @@ class Epic5ControllerTests {
 	}
 
 	@Test
-	void userEventsEndpointReturnsCustomerEventsAfterTimestamp() throws Exception {
+	void userEventsEndpointRequiresValidPullProof() throws Exception {
 		KeyPair operator = keyPair();
 		KeyPair customer = keyPair();
 		String operatorPubkey = rawPublicKey(operator);
@@ -68,16 +70,23 @@ class Epic5ControllerTests {
 				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(event)))))
 			.andExpect(status().isOk());
 
-		mvc.perform(get("/api/v1/users/{pubkey}/events", "base64:" + customerPubkey)
-				.param("after", "0"))
+		String wireCustomer = "base64:" + customerPubkey;
+		String proofMessage = "PLASTO_PULL|" + wireCustomer + "|0";
+		String proof = sign(customer, proofMessage);
+
+		mvc.perform(get("/api/v1/users/events")
+				.param("pubkey", wireCustomer)
+				.param("after", "0")
+				.header("X-Plasto-Pubkey", wireCustomer)
+				.header("X-Plasto-Proof", proof))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].customerPubkey").value("base64:" + customerPubkey))
+			.andExpect(jsonPath("$[0].customerPubkey").value(wireCustomer))
 			.andExpect(jsonPath("$[0].payloadJson").exists());
 
-		mvc.perform(get("/api/v1/users/{pubkey}/events", "base64:" + customerPubkey)
-				.param("after", "17000000100000"))
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.length()").value(0));
+		mvc.perform(get("/api/v1/users/events")
+				.param("pubkey", wireCustomer)
+				.param("after", "0"))
+			.andExpect(status().is4xxClientError());
 	}
 
 	@Test
@@ -86,10 +95,71 @@ class Epic5ControllerTests {
 		String operatorPubkey = rawPublicKey(operator);
 		issueCertificate(operatorPubkey, 500);
 
-		mvc.perform(get("/api/v1/operators/{pubkey}/float", "base64:" + operatorPubkey))
+		mvc.perform(get("/api/v1/operators/float")
+				.param("pubkey", "base64:" + operatorPubkey))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.cap").value(500))
 			.andExpect(jsonPath("$.remaining").value(500));
+	}
+
+	@Test
+	void photoCompleteRequiresTokenAndStoredBytes() throws Exception {
+		String hash = "a".repeat(64);
+		String presignJson = mvc.perform(post("/api/v1/photos/presigned")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"contentType", "image/jpeg"))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.completeToken").exists())
+			.andReturn().getResponse().getContentAsString();
+
+		JsonNode presign = objectMapper.readTree(presignJson);
+		String fullUploadUrl = presign.get("uploadUrl").asText();
+		String completeToken = presign.get("completeToken").asText();
+		java.net.URI uri = java.net.URI.create(fullUploadUrl);
+		String path = uri.getPath();
+		String query = uri.getQuery();
+		java.util.Map<String, String> params = new java.util.HashMap<>();
+		for (String part : query.split("&")) {
+			String[] kv = part.split("=", 2);
+			params.put(kv[0], java.net.URLDecoder.decode(kv[1], StandardCharsets.UTF_8));
+		}
+
+		mvc.perform(post("/api/v1/photos/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"completeToken", completeToken,
+					"bytes", 3))))
+			.andExpect(status().isConflict());
+
+		byte[] jpegish = new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF };
+		mvc.perform(put(path)
+				.param("expires", params.get("expires"))
+				.param("ct", params.get("ct"))
+				.param("sig", params.get("sig"))
+				.contentType(MediaType.IMAGE_JPEG)
+				.content(jpegish))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.bytes").value(3));
+
+		mvc.perform(post("/api/v1/photos/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"completeToken", "0".repeat(64),
+					"bytes", 3))))
+			.andExpect(status().isForbidden());
+
+		mvc.perform(post("/api/v1/photos/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"completeToken", completeToken,
+					"bytes", 3))))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.uploaded").value(true));
 	}
 
 	private void issueCertificate(String operatorPubkey, long floatCap) throws Exception {
