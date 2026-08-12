@@ -22,9 +22,8 @@ interface Props {
 }
 
 export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
-  const [words, setWords] = useState<string[]>(Array(12).fill(''));
+	const [words, setWords] = useState<string[]>(Array(12).fill(''));
   const [loading, setLoading] = useState(false);
-  const [_focusedIndex, setFocusedIndex] = useState(0);
 
   const handleWordChange = (index: number, value: string) => {
     const newWords = [...words];
@@ -57,6 +56,12 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
 
       const publicKeyBase58 = CryptoService.encodePublicKeyBase58(identity.publicKey);
 
+      await KeychainService.storeCustomerKeys({
+        publicKey: Buffer.from(identity.publicKey).toString('base64'),
+        secretKey: Buffer.from(identity.secretKey).toString('base64'),
+      });
+      await KeychainService.storeMnemonic(mnemonic);
+
       try {
         const response = await fetch(`${API_BASE}/users/${encodeURIComponent(publicKeyBase58)}/recover`, {
           method: 'POST',
@@ -74,12 +79,6 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
       } catch (e) {
         console.log('Sync failed (offline?):', e);
       }
-
-      await KeychainService.storeCustomerKeys({
-        publicKey: Buffer.from(identity.publicKey).toString('base64'),
-        secretKey: Buffer.from(identity.secretKey).toString('base64'),
-      });
-      await KeychainService.storeMnemonic(mnemonic);
 
       onComplete(identity);
     } catch {
@@ -104,7 +103,6 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
               style={styles.wordInput}
               value={word}
               onChangeText={(text) => handleWordChange(index, text)}
-              onFocus={() => setFocusedIndex(index)}
               autoCapitalize="none"
               autoCorrect={false}
               editable={!loading}

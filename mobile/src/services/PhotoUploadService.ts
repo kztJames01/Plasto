@@ -8,17 +8,40 @@ type PresignResponse = {
   objectKey: string;
   uploadUrl: string;
   expiresAt: string;
+  completeToken: string;
 };
 
 function normalizeUri(uri: string): string {
   if (uri.startsWith('file://')) {
-    return uri.replace('file://', '');
+    return uri;
   }
-  return uri;
+  return `file://${uri}`;
+}
+
+function pathOnly(uri: string): string {
+  return uri.startsWith('file://') ? uri.replace('file://', '') : uri;
 }
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function putBinary(uploadUrl: string, fileUri: string): Promise<number> {
+  // Read local file as a blob, then PUT raw JPEG bytes.
+  const fileResponse = await fetch(normalizeUri(fileUri));
+  if (!fileResponse.ok) {
+    throw new Error('Could not read local photo');
+  }
+  const blob = await fileResponse.blob();
+  const upload = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'image/jpeg' },
+    body: blob,
+  });
+  if (!upload.ok) {
+    throw new Error(`Upload PUT failed (${upload.status})`);
+  }
+  return blob.size;
 }
 
 export class PhotoUploadService {
@@ -42,6 +65,12 @@ export class PhotoUploadService {
 
   static async uploadOne(photo: PendingPhoto): Promise<void> {
     const eventId = photo.eventId ?? undefined;
+    const path = pathOnly(photo.localUri);
+    const exists = await RNFS.exists(path);
+    if (!exists) {
+      throw new Error('Local photo file missing');
+    }
+
     const presign = await fetch(`${API_BASE}/photos/presigned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -55,26 +84,20 @@ export class PhotoUploadService {
       throw new Error(`Presign failed (${presign.status})`);
     }
     const body = (await presign.json()) as PresignResponse;
-
-    const path = normalizeUri(photo.localUri);
-    const exists = await RNFS.exists(path);
-    if (!exists) {
-      throw new Error('Local photo file missing');
+    if (!body.completeToken) {
+      throw new Error('Presign response missing completeToken');
     }
-    const fileB64 = await RNFS.readFile(path, 'base64');
 
+    let bytes = 0;
     let uploadOk = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const upload = await fetch(body.uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/jpeg' },
-        body: fileB64,
-      });
-      if (upload.ok) {
+      try {
+        bytes = await putBinary(body.uploadUrl, photo.localUri);
         uploadOk = true;
         break;
+      } catch {
+        await sleep(500 * 2 ** attempt);
       }
-      await sleep(500 * 2 ** attempt);
     }
     if (!uploadOk) {
       throw new Error('Upload PUT failed');
@@ -85,7 +108,8 @@ export class PhotoUploadService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         hash: photo.photoHash,
-        bytes: fileB64.length,
+        completeToken: body.completeToken,
+        bytes,
       }),
     });
     if (!complete.ok) {

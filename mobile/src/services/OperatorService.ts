@@ -90,7 +90,7 @@ export class OperatorService {
     }
     try {
       const response = await fetch(
-        `${API_BASE}/operators/${encodeURIComponent(cert.operatorPubkey)}/float`,
+        `${API_BASE}/operators/float?pubkey=${encodeURIComponent(cert.operatorPubkey)}`,
       );
       if (!response.ok) {
         return null;

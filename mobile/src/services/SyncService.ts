@@ -1,6 +1,11 @@
+import NetInfo from '@react-native-community/netinfo';
+import { Buffer } from 'buffer';
+
 import { API_BASE } from '../config/api';
 import { EventPayload } from '../types/events';
+import { CryptoService } from './CryptoService';
 import { EventStore } from './EventStore';
+import { KeychainService } from './KeychainService';
 import { PhotoUploadService } from './PhotoUploadService';
 
 const BATCH_SIZE = 50;
@@ -39,7 +44,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function stripWirePrefix(value: string | null): string | null {
+  if (!value) {
+    return value;
+  }
+  const lower = value.toLowerCase();
+  for (const prefix of ['base58:', 'base64:', 'base64url:', 'hex:']) {
+    if (lower.startsWith(prefix)) {
+      return value.slice(prefix.length);
+    }
+  }
+  return value;
+}
+
 function toServerEvent(event: EventPayload): ServerEvent {
+  // Keep pubkey/sig strings identical to what was signed locally.
   return {
     eventId: event.eventId,
     eventType: event.eventType,
@@ -60,16 +79,30 @@ function fromServerEvent(raw: ServerEvent): EventPayload {
     eventId: raw.eventId,
     eventType: raw.eventType as EventPayload['eventType'],
     payload: JSON.parse(raw.payloadJson),
-    customerPubkey: raw.customerPubkey,
-    operatorPubkey: raw.operatorPubkey,
-    customerSig: raw.customerSig,
-    operatorSig: raw.operatorSig,
+    customerPubkey: stripWirePrefix(raw.customerPubkey),
+    operatorPubkey: stripWirePrefix(raw.operatorPubkey) ?? raw.operatorPubkey,
+    customerSig: stripWirePrefix(raw.customerSig),
+    operatorSig: stripWirePrefix(raw.operatorSig) ?? raw.operatorSig,
     photoHashes: JSON.parse(raw.photoHashes ?? '[]'),
     previousHash: raw.previousHash,
     eventHash: raw.eventHash,
     createdAtLocal: raw.createdAtLocal,
     synced: true,
   };
+}
+
+function parseSyncError(status: number, body: string): Error {
+  const lower = body.toLowerCase();
+  if (status === 409 && lower.includes('float')) {
+    return new Error('Float exceeded — sync rejected. Contact plant admin to top up float.');
+  }
+  if (status === 409 && lower.includes('hash chain')) {
+    return new Error('Hash chain conflict — local events may be out of order.');
+  }
+  if (status === 401 || status === 403) {
+    return new Error('Sync unauthorized — operator certificate may be missing or expired.');
+  }
+  return new Error(`Sync failed (${status})`);
 }
 
 async function fetchWithRetry(
@@ -103,8 +136,21 @@ async function fetchWithRetry(
 export class SyncService {
   static async isOnline(): Promise<boolean> {
     try {
+      const net = await NetInfo.fetch();
+      if (net.isConnected === false || net.isInternetReachable === false) {
+        return false;
+      }
       const response = await fetch(`${API_BASE}/health`);
       return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  static async isOnWifi(): Promise<boolean> {
+    try {
+      const net = await NetInfo.fetch();
+      return net.type === 'wifi' && net.isConnected === true;
     } catch {
       return false;
     }
@@ -132,7 +178,7 @@ export class SyncService {
       if (__DEV__) {
         console.warn(`Sync failed (${response.status})`, body);
       }
-      throw new Error(`Sync failed (${response.status})`);
+      throw parseSyncError(response.status, body);
     }
 
     const body = (await response.json()) as SyncBatchResponse;
@@ -166,9 +212,24 @@ export class SyncService {
 
   static async pull(customerPubkey: string): Promise<number> {
     const after = await EventStore.getLatestCustomerEventTime(customerPubkey);
+    const keys = await KeychainService.retrieveCustomerKeys();
+    if (!keys) {
+      throw new Error('No customer keys for pull proof');
+    }
+    const proofMessage = `PLASTO_PULL|${customerPubkey}|${after}`;
+    const proofSig = Buffer.from(
+      CryptoService.sign(Buffer.from(proofMessage, 'utf8'), Buffer.from(keys.secretKey, 'base64')),
+    ).toString('base64');
+
     const response = await fetchWithRetry(
-      `${API_BASE}/users/${encodeURIComponent(customerPubkey)}/events?after=${after}`,
-      { method: 'GET' },
+      `${API_BASE}/users/events?pubkey=${encodeURIComponent(customerPubkey)}&after=${after}`,
+      {
+        method: 'GET',
+        headers: {
+          'X-Plasto-Pubkey': customerPubkey,
+          'X-Plasto-Proof': proofSig,
+        },
+      },
     );
     if (!response.ok) {
       throw new Error(`Pull failed (${response.status})`);
@@ -178,8 +239,9 @@ export class SyncService {
   }
 
   static async syncAll(): Promise<SyncAllResult> {
-    const pushResult = await SyncService.pushAll();
+    // Photos first so evidence exists before/with event settlement.
     const photoResult = await PhotoUploadService.uploadPending(50);
+    const pushResult = await SyncService.pushAll();
     return {
       ...pushResult,
       photosUploaded: photoResult.uploaded,
@@ -188,18 +250,20 @@ export class SyncService {
   }
 
   static async autoSyncIfOnline(): Promise<SyncAllResult | null> {
+    // Roadmap AC: auto-sync on WiFi only (not cellular).
+    if (!(await SyncService.isOnWifi())) {
+      return null;
+    }
     if (!(await SyncService.isOnline())) {
       return null;
     }
     try {
       return await SyncService.syncAll();
-    } catch {
+    } catch (err) {
+      if (__DEV__) {
+        console.warn('auto sync failed', err);
+      }
       return null;
     }
-  }
-
-  // old name kept so existing screens still compile
-  static async uploadBatch(limit: number = BATCH_SIZE): Promise<SyncBatchResponse> {
-    return SyncService.push(limit);
   }
 }
