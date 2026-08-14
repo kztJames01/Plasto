@@ -1,13 +1,16 @@
 package com.plasto.api.web;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.plasto.api.audit.MerkleTreeService;
 import com.plasto.api.event.EventRepository;
 
 @RestController
@@ -15,24 +18,30 @@ import com.plasto.api.event.EventRepository;
 public class RecoveryController {
 
 	private final EventRepository eventRepository;
+	private final MerkleTreeService merkleTreeService;
 
-	public RecoveryController(EventRepository eventRepository) {
+	public RecoveryController(EventRepository eventRepository, MerkleTreeService merkleTreeService) {
 		this.eventRepository = eventRepository;
+		this.merkleTreeService = merkleTreeService;
 	}
 
-	/**
-	 * Returns the count of events recorded for the given customer and the
-	 * timestamp of the latest one. The mobile app uses this endpoint as a
-	 * connectivity probe; we deliberately do not echo the path parameter
-	 * back in the response body to avoid confirming whether a given key
-	 * has any activity.
-	 */
+	/** Preferred: query param avoids '/' in base64 path segments. */
+	@PostMapping("/recover")
+	public ResponseEntity<Map<String, Object>> recoverUserQuery(@RequestParam("pubkey") String pubkey) {
+		return recover(pubkey);
+	}
+
+	/** Legacy path form for base58 pubkeys (no '/'). */
 	@PostMapping("/{pubkey}/recover")
-	public ResponseEntity<Map<String, Object>> recoverUser(@PathVariable String pubkey) {
+	public ResponseEntity<Map<String, Object>> recoverUserPath(@PathVariable String pubkey) {
+		return recover(pubkey);
+	}
+
+	private ResponseEntity<Map<String, Object>> recover(String pubkey) {
 		long count = eventRepository.countByCustomerPubkey(pubkey);
-		return ResponseEntity.ok(Map.of(
-			"event_count", count,
-			"merkle_root", ""
-		));
+		Map<String, Object> body = new HashMap<>();
+		body.put("event_count", count);
+		body.put("merkle_root", merkleTreeService.latestRootHash().orElse(""));
+		return ResponseEntity.ok(body);
 	}
 }
