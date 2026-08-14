@@ -1,6 +1,7 @@
 package com.plasto.api;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -22,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @SpringBootTest
@@ -32,8 +34,35 @@ class SyncBatchControllerTests {
 	@Autowired MockMvc mvc;
 	@Autowired ObjectMapper objectMapper;
 
+	private static final byte[][] PHOTO_BODIES = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x01 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x02 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x03 },
+	};
+	private static final byte[][] ALT_PHOTO_BODIES = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x04 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x05 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x06 },
+	};
+	private static final byte[][] CHAIN_FIRST_PHOTOS = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x07 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x08 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x09 },
+	};
+	private static final byte[][] CHAIN_FORK_PHOTOS = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0A },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0B },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0C },
+	};
+	private static final byte[][] OPERATOR_ONLY_PHOTOS = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0D },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0E },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x0F },
+	};
+
 	@Test
 	void syncBatchAcceptsValidEventAndIsIdempotent() throws Exception {
+		uploadBodies(PHOTO_BODIES);
 		KeyPair operator = keyPair();
 		KeyPair customer = keyPair();
 		String operatorPubkey = rawPublicKey(operator);
@@ -42,7 +71,7 @@ class SyncBatchControllerTests {
 		issueCertificate(operatorPubkey, 1_000);
 
 		Map<String, Object> event = signedEvent(operator, customer, operatorPubkey, customerPubkey,
-			UUID.randomUUID(), "", 100, 1_700_000_000_000L, "[\"%s\"]".formatted("a".repeat(64)));
+			UUID.randomUUID(), "", 100, 1_700_000_000_000L, defaultPhotoHashes());
 		Map<String, Object> request = Map.of("events", java.util.List.of(event));
 
 		mvc.perform(post("/api/v1/sync/batch")
@@ -60,6 +89,7 @@ class SyncBatchControllerTests {
 
 	@Test
 	void syncBatchRejectsOverFloatEvent() throws Exception {
+		uploadBodies(ALT_PHOTO_BODIES);
 		KeyPair operator = keyPair();
 		KeyPair customer = keyPair();
 		String operatorPubkey = rawPublicKey(operator);
@@ -68,7 +98,7 @@ class SyncBatchControllerTests {
 		issueCertificate(operatorPubkey, 50);
 
 		Map<String, Object> event = signedEvent(operator, customer, operatorPubkey, customerPubkey,
-			UUID.randomUUID(), "", 100, 1_700_000_000_001L, "[]");
+			UUID.randomUUID(), "", 100, 1_700_000_000_001L, photoHashesFor(ALT_PHOTO_BODIES));
 		Map<String, Object> request = Map.of("events", java.util.List.of(event));
 
 		mvc.perform(post("/api/v1/sync/batch")
@@ -80,6 +110,8 @@ class SyncBatchControllerTests {
 
 	@Test
 	void syncBatchRejectsHashChainBreak() throws Exception {
+		uploadBodies(CHAIN_FIRST_PHOTOS);
+		uploadBodies(CHAIN_FORK_PHOTOS);
 		// Second event claims a previousHash that does not match the operator's
 		// latest persisted event. The server must reject the entire batch.
 		KeyPair operator = keyPair();
@@ -90,19 +122,55 @@ class SyncBatchControllerTests {
 		issueCertificate(operatorPubkey, 1_000);
 
 		Map<String, Object> first = signedEvent(operator, customer, operatorPubkey, customerPubkey,
-			UUID.randomUUID(), "", 10, 1_700_000_000_010L, "[]");
+			UUID.randomUUID(), "", 10, 1_700_000_000_010L, photoHashesFor(CHAIN_FIRST_PHOTOS));
 		mvc.perform(post("/api/v1/sync/batch")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(first)))))
 			.andExpect(status().isOk());
 
 		Map<String, Object> forked = signedEvent(operator, customer, operatorPubkey, customerPubkey,
-			UUID.randomUUID(), "0".repeat(64), 10, 1_700_000_000_011L, "[]");
+			UUID.randomUUID(), "0".repeat(64), 10, 1_700_000_000_011L, photoHashesFor(CHAIN_FORK_PHOTOS));
 		mvc.perform(post("/api/v1/sync/batch")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(forked)))))
 			.andExpect(status().isConflict())
 			.andExpect(jsonPath("$.message").value("operator hash chain break"));
+	}
+
+	@Test
+	void syncBatchRejectsOperatorOnlyDeposit() throws Exception {
+		uploadBodies(OPERATOR_ONLY_PHOTOS);
+		KeyPair operator = keyPair();
+		String operatorPubkey = rawPublicKey(operator);
+		issueCertificate(operatorPubkey, 1_000);
+
+		String eventType = "DEPOSIT";
+		String payloadJson = "{\"credits\":10}";
+		UUID eventId = UUID.randomUUID();
+		long createdAt = 1_700_000_000_020L;
+		String eventHash = sha256(eventId.toString() + "|" + eventType + "|" + payloadJson + "|" + createdAt);
+		String photos = photoHashesFor(OPERATOR_ONLY_PHOTOS);
+		String payload = String.join("|",
+			eventId.toString(), eventType, payloadJson,
+			"", "base64:" + operatorPubkey,
+			photos, "", eventHash, String.valueOf(createdAt));
+		Map<String, Object> event = new LinkedHashMap<>();
+		event.put("eventId", eventId.toString());
+		event.put("eventType", eventType);
+		event.put("payloadJson", payloadJson);
+		event.put("customerPubkey", "");
+		event.put("operatorPubkey", "base64:" + operatorPubkey);
+		event.put("customerSig", "");
+		event.put("operatorSig", sign(operator, payload));
+		event.put("photoHashes", photos);
+		event.put("previousHash", "");
+		event.put("eventHash", eventHash);
+		event.put("createdAtLocal", createdAt);
+
+		mvc.perform(post("/api/v1/sync/batch")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of("events", java.util.List.of(event)))))
+			.andExpect(status().isBadRequest());
 	}
 
 	@Test
@@ -167,6 +235,66 @@ class SyncBatchControllerTests {
 		byte[] encoded = ADMIN_KEYPAIR.getPublic().getEncoded();
 		byte[] raw = java.util.Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
 		return Base64.getEncoder().encodeToString(raw);
+	}
+
+	private String defaultPhotoHashes() throws Exception {
+		return photoHashesFor(PHOTO_BODIES);
+	}
+
+	private String photoHashesFor(byte[][] bodies) throws Exception {
+		java.util.List<String> hashes = new java.util.ArrayList<>();
+		for (byte[] body : bodies) {
+			hashes.add(sha256Bytes(body));
+		}
+		return objectMapper.writeValueAsString(hashes);
+	}
+
+	private void uploadBodies(byte[][] bodies) throws Exception {
+		for (byte[] body : bodies) {
+			uploadPhoto(sha256Bytes(body), body);
+		}
+	}
+
+	private void uploadPhoto(String hash, byte[] body) throws Exception {
+		String presignJson = mvc.perform(post("/api/v1/photos/presigned")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"contentType", "image/jpeg"))))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		JsonNode presign = objectMapper.readTree(presignJson);
+		String fullUploadUrl = presign.get("uploadUrl").asText();
+		String completeToken = presign.get("completeToken").asText();
+		java.net.URI uri = java.net.URI.create(fullUploadUrl);
+		java.util.Map<String, String> params = new java.util.HashMap<>();
+		for (String part : uri.getQuery().split("&")) {
+			String[] kv = part.split("=", 2);
+			params.put(kv[0], java.net.URLDecoder.decode(kv[1], StandardCharsets.UTF_8));
+		}
+		mvc.perform(put(uri.getPath())
+				.param("expires", params.get("expires"))
+				.param("ct", params.get("ct"))
+				.param("sig", params.get("sig"))
+				.contentType(MediaType.IMAGE_JPEG)
+				.content(body))
+			.andExpect(status().isOk());
+		mvc.perform(post("/api/v1/photos/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"completeToken", completeToken,
+					"bytes", body.length))))
+			.andExpect(status().isOk());
+	}
+
+	private static String sha256Bytes(byte[] input) throws Exception {
+		byte[] hash = MessageDigest.getInstance("SHA-256").digest(input);
+		StringBuilder out = new StringBuilder(hash.length * 2);
+		for (byte b : hash) {
+			out.append(String.format("%02x", b));
+		}
+		return out.toString();
 	}
 
 	private void issueCertificate(String operatorPubkey, long floatCap) throws Exception {

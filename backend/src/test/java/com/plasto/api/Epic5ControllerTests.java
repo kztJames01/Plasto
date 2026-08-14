@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -38,6 +39,18 @@ class Epic5ControllerTests {
 	private static final String PLANT_ID = "plant-a";
 	private static final KeyPair ADMIN_KEYPAIR = adminKeyPair();
 	private static final String ADMIN_PUBKEY = "base64:" + adminRawPublicKey();
+	private static final byte[][] PHOTO_BODIES = {
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x11 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x12 },
+		new byte[] { (byte) 0xFF, (byte) 0xD8, 0x13 },
+	};
+
+	@BeforeEach
+	void uploadDefaultEvidencePhotos() throws Exception {
+		for (byte[] body : PHOTO_BODIES) {
+			uploadPhoto(sha256Bytes(body), body);
+		}
+	}
 
 	@Test
 	void healthEndpointReturnsOk() throws Exception {
@@ -63,7 +76,7 @@ class Epic5ControllerTests {
 			"",
 			120,
 			1_700_000_010_000L,
-			"[]"
+			defaultPhotoHashes()
 		);
 		mvc.perform(post("/api/v1/sync/batch")
 				.contentType(MediaType.APPLICATION_JSON)
@@ -71,7 +84,8 @@ class Epic5ControllerTests {
 			.andExpect(status().isOk());
 
 		String wireCustomer = "base64:" + customerPubkey;
-		String proofMessage = "PLASTO_PULL|" + wireCustomer + "|0";
+		String zeroId = "00000000-0000-0000-0000-000000000000";
+		String proofMessage = "PLASTO_PULL|" + wireCustomer + "|0|" + zeroId;
 		String proof = sign(customer, proofMessage);
 
 		mvc.perform(get("/api/v1/users/events")
@@ -104,7 +118,8 @@ class Epic5ControllerTests {
 
 	@Test
 	void photoCompleteRequiresTokenAndStoredBytes() throws Exception {
-		String hash = "a".repeat(64);
+		byte[] jpegish = new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF };
+		String hash = sha256Bytes(jpegish);
 		String presignJson = mvc.perform(post("/api/v1/photos/presigned")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(objectMapper.writeValueAsBytes(Map.of(
@@ -134,7 +149,6 @@ class Epic5ControllerTests {
 					"bytes", 3))))
 			.andExpect(status().isConflict());
 
-		byte[] jpegish = new byte[] { (byte) 0xFF, (byte) 0xD8, (byte) 0xFF };
 		mvc.perform(put(path)
 				.param("expires", params.get("expires"))
 				.param("ct", params.get("ct"))
@@ -160,6 +174,47 @@ class Epic5ControllerTests {
 					"bytes", 3))))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.uploaded").value(true));
+	}
+
+	private String defaultPhotoHashes() throws Exception {
+		java.util.List<String> hashes = new java.util.ArrayList<>();
+		for (byte[] body : PHOTO_BODIES) {
+			hashes.add(sha256Bytes(body));
+		}
+		return objectMapper.writeValueAsString(hashes);
+	}
+
+	private void uploadPhoto(String hash, byte[] body) throws Exception {
+		String presignJson = mvc.perform(post("/api/v1/photos/presigned")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"contentType", "image/jpeg"))))
+			.andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		JsonNode presign = objectMapper.readTree(presignJson);
+		String fullUploadUrl = presign.get("uploadUrl").asText();
+		String completeToken = presign.get("completeToken").asText();
+		java.net.URI uri = java.net.URI.create(fullUploadUrl);
+		java.util.Map<String, String> params = new java.util.HashMap<>();
+		for (String part : uri.getQuery().split("&")) {
+			String[] kv = part.split("=", 2);
+			params.put(kv[0], java.net.URLDecoder.decode(kv[1], StandardCharsets.UTF_8));
+		}
+		mvc.perform(put(uri.getPath())
+				.param("expires", params.get("expires"))
+				.param("ct", params.get("ct"))
+				.param("sig", params.get("sig"))
+				.contentType(MediaType.IMAGE_JPEG)
+				.content(body))
+			.andExpect(status().isOk());
+		mvc.perform(post("/api/v1/photos/complete")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(objectMapper.writeValueAsBytes(Map.of(
+					"hash", hash,
+					"completeToken", completeToken,
+					"bytes", body.length))))
+			.andExpect(status().isOk());
 	}
 
 	private void issueCertificate(String operatorPubkey, long floatCap) throws Exception {
@@ -245,6 +300,15 @@ class Epic5ControllerTests {
 
 	private static String sha256(String input) throws Exception {
 		byte[] hash = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
+		StringBuilder out = new StringBuilder(hash.length * 2);
+		for (byte b : hash) {
+			out.append(String.format("%02x", b));
+		}
+		return out.toString();
+	}
+
+	private static String sha256Bytes(byte[] input) throws Exception {
+		byte[] hash = MessageDigest.getInstance("SHA-256").digest(input);
 		StringBuilder out = new StringBuilder(hash.length * 2);
 		for (byte b : hash) {
 			out.append(String.format("%02x", b));

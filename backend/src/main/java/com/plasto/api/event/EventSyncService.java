@@ -21,6 +21,7 @@ import com.plasto.api.certificate.CertificateService;
 import com.plasto.api.certificate.OperatorCertificate;
 import com.plasto.api.crypto.SignatureVerifier;
 import com.plasto.api.floatcap.FloatService;
+import com.plasto.api.photo.PhotoUploadRepository;
 
 @Service
 public class EventSyncService {
@@ -32,6 +33,7 @@ public class EventSyncService {
 	private final FloatService floatService;
 	private final EventHashService hashService;
 	private final SignatureVerifier signatureVerifier;
+	private final PhotoUploadRepository photoUploadRepository;
 	private final ObjectMapper objectMapper;
 
 	public EventSyncService(
@@ -40,6 +42,7 @@ public class EventSyncService {
 		FloatService floatService,
 		EventHashService hashService,
 		SignatureVerifier signatureVerifier,
+		PhotoUploadRepository photoUploadRepository,
 		ObjectMapper objectMapper
 	) {
 		this.eventRepository = eventRepository;
@@ -47,6 +50,7 @@ public class EventSyncService {
 		this.floatService = floatService;
 		this.hashService = hashService;
 		this.signatureVerifier = signatureVerifier;
+		this.photoUploadRepository = photoUploadRepository;
 		this.objectMapper = objectMapper;
 	}
 
@@ -108,6 +112,17 @@ public class EventSyncService {
 	}
 
 	private void validateSignatures(SyncEventRequest event) {
+		String type = event.eventType().toUpperCase();
+		boolean dualSigned = "DEPOSIT".equals(type) || "REDEEM".equals(type);
+		if (dualSigned) {
+			if (event.customerPubkey() == null || event.customerPubkey().isBlank()) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "customer pubkey required for " + type);
+			}
+			if (event.customerSig() == null || event.customerSig().isBlank()) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "missing customer signature");
+			}
+		}
+
 		String payload = hashService.signingPayload(event);
 		if (!signatureVerifier.verify(event.operatorPubkey(), event.operatorSig(), payload)) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid operator signature");
@@ -123,12 +138,22 @@ public class EventSyncService {
 	}
 
 	private void validatePhotoHashes(SyncEventRequest event, Set<String> photoHashesInBatch) {
-		for (String hash : parsePhotoHashes(event.photoHashes())) {
+		List<String> hashes = parsePhotoHashes(event.photoHashes());
+		if ("DEPOSIT".equalsIgnoreCase(event.eventType()) && hashes.size() < 3) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "DEPOSIT requires at least 3 photo hashes");
+		}
+		for (String hash : hashes) {
 			if (!photoHashesInBatch.add(hash)) {
 				throw new ResponseStatusException(HttpStatus.CONFLICT, "duplicate photo hash in batch");
 			}
 			if (eventRepository.existsByPhotoHashesContaining(hash)) {
 				throw new ResponseStatusException(HttpStatus.CONFLICT, "photo hash already exists");
+			}
+			if ("DEPOSIT".equalsIgnoreCase(event.eventType())) {
+				var upload = photoUploadRepository.findById(hash.toLowerCase(java.util.Locale.ROOT));
+				if (upload.isEmpty() || !upload.get().isUploaded()) {
+					throw new ResponseStatusException(HttpStatus.CONFLICT, "photo evidence not uploaded");
+				}
 			}
 		}
 	}

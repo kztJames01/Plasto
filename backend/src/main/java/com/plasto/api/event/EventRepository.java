@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -25,5 +27,22 @@ public interface EventRepository extends JpaRepository<EventRecord, UUID> {
 	List<EventRecord> findByCustomerPubkeyAndCreatedAtLocalGreaterThanOrderByCreatedAtLocalAsc(
 		String customerPubkey,
 		long after
+	);
+
+	@Query("""
+		SELECT e FROM EventRecord e
+		WHERE e.customerPubkey = :pubkey
+		AND (e.createdAtLocal > :afterTs OR (e.createdAtLocal = :afterTs AND e.eventId > :afterEventId))
+		ORDER BY e.createdAtLocal ASC, e.eventId ASC
+		""")
+	List<EventRecord> findCustomerEventsAfterCursor(
+		@Param("pubkey") String pubkey,
+		@Param("afterTs") long afterTs,
+		@Param("afterEventId") UUID afterEventId
+	);
+
+	List<EventRecord> findByCreatedAtLocalGreaterThanEqualAndCreatedAtLocalLessThanOrderByEventHashAsc(
+		long startInclusive,
+		long endExclusive
 	);
 }

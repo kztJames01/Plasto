@@ -1,6 +1,7 @@
 package com.plasto.api.web;
 
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,18 +31,19 @@ public class UserEventsController {
 	public List<SyncEventResponse> listEvents(
 		@RequestParam("pubkey") String pubkey,
 		@RequestParam(name = "after", defaultValue = "0") long after,
+		@RequestParam(name = "afterEventId", defaultValue = "00000000-0000-0000-0000-000000000000") UUID afterEventId,
 		@RequestHeader(name = "X-Plasto-Pubkey") String proofPubkey,
 		@RequestHeader(name = "X-Plasto-Proof") String proofSig
 	) {
 		if (!pubkeyEquals(pubkey, proofPubkey)) {
 			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "pubkey proof mismatch");
 		}
-		String message = "PLASTO_PULL|" + pubkey + "|" + after;
+		String message = "PLASTO_PULL|" + pubkey + "|" + after + "|" + afterEventId;
 		if (!signatureVerifier.verify(proofPubkey, proofSig, message)) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid pull proof");
 		}
 		return eventRepository
-			.findByCustomerPubkeyAndCreatedAtLocalGreaterThanOrderByCreatedAtLocalAsc(pubkey, after)
+			.findCustomerEventsAfterCursor(pubkey, after, afterEventId)
 			.stream()
 			.map(SyncEventResponse::from)
 			.toList();
