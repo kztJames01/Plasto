@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { sha256 } from 'js-sha256';
 import { Asset, CameraOptions, launchCamera } from 'react-native-image-picker';
 import RNFS from 'react-native-fs';
@@ -48,14 +49,17 @@ export class PhotoCaptureService {
       throw new Error('No captured photo found');
     }
     const fileB64 = await readAssetBase64(asset);
-    const contentHash = sha256(fileB64);
+    // Hash raw JPEG bytes so server-side SHA-256 of the PUT body matches.
+    const raw = Buffer.from(fileB64, 'base64');
+    const contentHash = sha256(Array.from(raw));
     const evidenceHash = PhotoEvidenceService.hashEvidence({
       label,
       contentSha256Hex: contentHash,
       localUri: asset.uri,
       note,
     });
-    await PhotoEvidenceService.storeEvidence(null, evidenceHash, label, asset.uri);
+    // Store content hash as photo_hash — this is what events and cloud use.
+    await PhotoEvidenceService.storeEvidence(null, contentHash, label, asset.uri);
     return {
       uri: asset.uri,
       contentHash,

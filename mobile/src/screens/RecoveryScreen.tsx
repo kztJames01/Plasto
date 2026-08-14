@@ -63,10 +63,13 @@ export const RecoveryScreen: React.FC<Props> = ({ onComplete }) => {
       await KeychainService.storeMnemonic(mnemonic);
 
       try {
-        const response = await fetch(`${API_BASE}/users/${encodeURIComponent(publicKeyBase58)}/recover`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const response = await fetch(
+          `${API_BASE}/users/recover?pubkey=${encodeURIComponent(publicKeyBase58)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
 
         if (!response.ok && response.status !== 404) {
           console.log('Recovery sync response:', response.status);

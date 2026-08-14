@@ -211,18 +211,18 @@ export class SyncService {
   }
 
   static async pull(customerPubkey: string): Promise<number> {
-    const after = await EventStore.getLatestCustomerEventTime(customerPubkey);
+    const cursor = await EventStore.getLatestCustomerEventCursor(customerPubkey);
     const keys = await KeychainService.retrieveCustomerKeys();
     if (!keys) {
       throw new Error('No customer keys for pull proof');
     }
-    const proofMessage = `PLASTO_PULL|${customerPubkey}|${after}`;
+    const proofMessage = `PLASTO_PULL|${customerPubkey}|${cursor.ts}|${cursor.eventId}`;
     const proofSig = Buffer.from(
       CryptoService.sign(Buffer.from(proofMessage, 'utf8'), Buffer.from(keys.secretKey, 'base64')),
     ).toString('base64');
 
     const response = await fetchWithRetry(
-      `${API_BASE}/users/events?pubkey=${encodeURIComponent(customerPubkey)}&after=${after}`,
+      `${API_BASE}/users/events?pubkey=${encodeURIComponent(customerPubkey)}&after=${cursor.ts}&afterEventId=${encodeURIComponent(cursor.eventId)}`,
       {
         method: 'GET',
         headers: {

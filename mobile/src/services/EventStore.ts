@@ -169,13 +169,27 @@ export class EventStore {
     );
   }
 
-  static async getLatestCustomerEventTime(pubkey: string): Promise<number> {
+  static async getLatestCustomerEventCursor(
+    pubkey: string,
+  ): Promise<{ ts: number; eventId: string }> {
     const db = await getDatabase();
     const row = db.execute(
-      `SELECT MAX(created_at_local) AS ts FROM events WHERE customer_pubkey = ?`,
+      `SELECT created_at_local AS ts, event_id AS eventId
+       FROM events
+       WHERE customer_pubkey = ?
+       ORDER BY created_at_local DESC, event_id DESC
+       LIMIT 1`,
       [pubkey],
     ).rows?._array?.[0];
-    return Number(row?.ts ?? 0);
+    return {
+      ts: Number(row?.ts ?? 0),
+      eventId: String(row?.eventId ?? '00000000-0000-0000-0000-000000000000'),
+    };
+  }
+
+  static async getLatestCustomerEventTime(pubkey: string): Promise<number> {
+    const cursor = await EventStore.getLatestCustomerEventCursor(pubkey);
+    return cursor.ts;
   }
 
   static async hasEvent(eventId: string): Promise<boolean> {

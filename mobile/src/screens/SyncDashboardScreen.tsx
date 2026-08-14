@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 
 import { EventStore } from '../services/EventStore';
 import { PhotoEvidenceService } from '../services/PhotoEvidenceService';
+import { PhotoUploadService } from '../services/PhotoUploadService';
 import { SyncService } from '../services/SyncService';
 import { EventPayload } from '../types/events';
 
@@ -40,8 +41,11 @@ export const SyncDashboardScreen: React.FC<Props> = ({ onBack }) => {
   const syncBatch = async () => {
     setStatus('Uploading one batch...');
     try {
+      const photos = await PhotoUploadService.uploadPending(50);
       const result = await SyncService.push(50);
-      setStatus(`Accepted ${result.acceptedCount}, duplicates ${result.duplicateCount}`);
+      setStatus(
+        `Accepted ${result.acceptedCount}, duplicates ${result.duplicateCount}, ${photos.uploaded} photos`,
+      );
       await load();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err));
