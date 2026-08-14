@@ -75,7 +75,7 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
 
   const runAiSuggest = () => {
     setError('');
-    const hashes = photos.filter(Boolean).map(p => p!.evidenceHash);
+    const hashes = photos.filter(Boolean).map(p => p!.contentHash);
     if (hashes.length < 3) {
       setError('Capture 3 photos first so AI can estimate class');
       return;
@@ -96,7 +96,7 @@ export const DepositFlowScreen: React.FC<Props> = ({ onBack }) => {
     setProposalPackets([]);
     setBusy(true);
     try {
-      const cleanHashes = photos.filter(Boolean).map(p => p!.evidenceHash);
+      const cleanHashes = photos.filter(Boolean).map(p => p!.contentHash);
       const next = await DepositProposalService.createProposal({
         customerPubkey,
         weightKg: Number(weightKg),

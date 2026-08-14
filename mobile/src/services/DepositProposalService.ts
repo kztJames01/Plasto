@@ -34,6 +34,9 @@ function sortedPayloadJson(payload: EventPayload['payload']): string {
 
 export class DepositProposalService {
   static async createProposal(input: CreateDepositInput): Promise<DepositProposal> {
+    if (!input.customerPubkey?.trim()) {
+      throw new Error('Customer public key is required');
+    }
     if (input.weightKg <= 0) {
       throw new Error('Weight must be greater than zero');
     }
