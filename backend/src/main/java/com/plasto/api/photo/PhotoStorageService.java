@@ -7,6 +7,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
@@ -20,6 +21,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.plasto.api.event.EventRecord;
+import com.plasto.api.event.EventRepository;
+
 @Service
 public class PhotoStorageService {
 
@@ -27,19 +33,26 @@ public class PhotoStorageService {
 		"image/jpeg", "image/png", "image/webp", "image/heic"
 	);
 	private static final HexFormat HEX = HexFormat.of();
+	private static final TypeReference<List<String>> HASH_LIST = new TypeReference<>() {};
 
 	private final PhotoUploadRepository repository;
+	private final EventRepository eventRepository;
+	private final ObjectMapper objectMapper;
 	private final String uploadBaseUrl;
 	private final byte[] signingKey;
 	private final Path localStore;
 
 	public PhotoStorageService(
 		PhotoUploadRepository repository,
+		EventRepository eventRepository,
+		ObjectMapper objectMapper,
 		@Value("${plasto.photos.upload-base-url:http://localhost:8080/local-photo-upload}") String uploadBaseUrl,
-		@Value("${plasto.photos.signing-key:dev-only-do-not-use-in-prod}") String signingKey,
+		@Value("${plasto.photos.signing-key:dev-only-signing-key-replace-in-prod-32b}") String signingKey,
 		@Value("${plasto.photos.local-store:./data/photo-uploads}") String localStore
 	) {
 		this.repository = repository;
+		this.eventRepository = eventRepository;
+		this.objectMapper = objectMapper;
 		this.uploadBaseUrl = uploadBaseUrl.replaceAll("/+$", "");
 		this.signingKey = signingKey.getBytes(StandardCharsets.UTF_8);
 		if (this.signingKey.length < 32) {
@@ -58,6 +71,8 @@ public class PhotoStorageService {
 		if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
 			throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "contentType not allowed");
 		}
+		validateEventOwnership(request.eventId(), hash);
+
 		Instant expiresAt = Instant.now().plus(15, ChronoUnit.MINUTES);
 		String objectKey = "photos/" + hash.substring(0, 2) + "/" + hash + ".jpg";
 		String signature = sign(objectKey, contentType, expiresAt);
@@ -107,6 +122,10 @@ public class PhotoStorageService {
 		if (Instant.now().isAfter(upload.getExpiresAt())) {
 			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "upload URL expired");
 		}
+		String actualHash = sha256Hex(body);
+		if (!actualHash.equalsIgnoreCase(upload.getPhotoHash())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "uploaded bytes do not match declared photo hash");
+		}
 		try {
 			Path target = localStore.resolve(upload.getPhotoHash() + ".bin").normalize();
 			if (!target.startsWith(localStore)) {
@@ -145,9 +164,50 @@ public class PhotoStorageService {
 		if (!Files.isRegularFile(stored)) {
 			throw new ResponseStatusException(HttpStatus.CONFLICT, "photo file missing on server");
 		}
+		try {
+			byte[] bytes = Files.readAllBytes(stored);
+			String actual = sha256Hex(bytes);
+			if (!actual.equalsIgnoreCase(upload.getPhotoHash())) {
+				throw new ResponseStatusException(HttpStatus.CONFLICT, "stored photo hash mismatch");
+			}
+		} catch (ResponseStatusException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "failed to verify stored photo");
+		}
 		upload.setUploaded(true);
 		repository.save(upload);
 		return upload;
+	}
+
+	private void validateEventOwnership(UUID eventId, String hash) {
+		if (eventId == null) {
+			return;
+		}
+		EventRecord event = eventRepository.findById(eventId).orElse(null);
+		if (event == null) {
+			// Photos often upload before the event is synced — allow orphan
+			// presigns, but require the hash when the event already exists.
+			return;
+		}
+		List<String> hashes = parseHashes(event.getPhotoHashes());
+		boolean found = hashes.stream().anyMatch(h -> h.equalsIgnoreCase(hash));
+		if (!found) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "photo hash not listed on event");
+		}
+	}
+
+	private List<String> parseHashes(String photoHashes) {
+		if (photoHashes == null || photoHashes.isBlank()) {
+			return List.of();
+		}
+		try {
+			return objectMapper.readValue(photoHashes, HASH_LIST).stream()
+				.filter(h -> h != null && !h.isBlank())
+				.toList();
+		} catch (Exception ex) {
+			return List.of();
+		}
 	}
 
 	private String signCompleteToken(String hash, String objectKey, Instant expiresAt) {
@@ -163,6 +223,15 @@ public class PhotoStorageService {
 			return HEX.formatHex(sig);
 		} catch (Exception ex) {
 			throw new IllegalStateException("HMAC-SHA256 unavailable", ex);
+		}
+	}
+
+	private static String sha256Hex(byte[] body) {
+		try {
+			byte[] digest = MessageDigest.getInstance("SHA-256").digest(body);
+			return HEX.formatHex(digest);
+		} catch (Exception ex) {
+			throw new IllegalStateException("SHA-256 unavailable", ex);
 		}
 	}
 
