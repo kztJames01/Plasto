@@ -11,6 +11,7 @@ import {
 import { QRDisplay } from '../components/QRDisplay';
 import { BalanceService } from '../services/BalanceService';
 import { CryptoService } from '../services/CryptoService';
+import { EventStore } from '../services/EventStore';
 import { SyncService } from '../services/SyncService';
 import { Identity } from '../types/identity';
 
@@ -54,6 +55,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
   const [balance, setBalance] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [lastTxAt, setLastTxAt] = useState<number | null>(null);
+  const [plantName, setPlantName] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [syncNote, setSyncNote] = useState('Pull to refresh');
 
@@ -64,10 +67,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       const refreshed = await BalanceService.getSnapshot(pubkey);
       setBalance(refreshed.balance);
       setLastUpdated(refreshed.updatedAt);
-      return;
+    } else {
+      setBalance(snap.balance);
+      setLastUpdated(snap.updatedAt);
     }
-    setBalance(snap.balance);
-    setLastUpdated(snap.updatedAt);
+    const latest = await EventStore.getLatestCustomerEvent(pubkey);
+    setLastTxAt(latest?.createdAtLocal ?? null);
+    setPlantName(latest?.payload?.plantId ?? '');
   }, [pubkey]);
 
   const onRefresh = useCallback(async () => {
@@ -81,6 +87,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       const snap = await BalanceService.getSnapshot(pubkey);
       setBalance(snap.balance);
       setLastUpdated(snap.updatedAt);
+      const latest = await EventStore.getLatestCustomerEvent(pubkey);
+      setLastTxAt(latest?.createdAtLocal ?? null);
+      setPlantName(latest?.payload?.plantId ?? '');
       setSyncNote(
         online
           ? 'Synced and refreshed'
@@ -106,6 +115,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <Text style={styles.balanceValue}>{balance}</Text>
         <Text style={styles.balanceSuffix}>credits</Text>
       </View>
+      {plantName ? <Text style={styles.plant}>{plantName}</Text> : null}
+      <Text style={styles.meta}>
+        Last transaction:{' '}
+        {lastTxAt ? new Date(lastTxAt).toLocaleString() : 'none yet'}
+      </Text>
       <Text style={styles.meta}>Last updated: {formatLastUpdated(lastUpdated)}</Text>
       <Text style={styles.meta}>{syncNote}</Text>
       <View style={styles.qrWrap}>
@@ -147,6 +161,7 @@ const styles = StyleSheet.create({
   balanceLabel: { color: '#AFAFAF', fontSize: 16, marginBottom: 8 },
   balanceValue: { color: '#FFF', fontSize: 54, fontWeight: '800', lineHeight: 62 },
   balanceSuffix: { color: '#FFF', fontSize: 18, fontWeight: '600' },
+  plant: { fontSize: 18, fontWeight: '700', color: '#111', marginBottom: 6 },
   meta: { color: '#666', fontSize: 14, marginBottom: 4 },
   qrWrap: { width: '100%', marginTop: 18 },
   actions: { width: '100%', marginTop: 8, gap: 10 },

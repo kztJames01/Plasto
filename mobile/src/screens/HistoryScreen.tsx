@@ -9,9 +9,10 @@ import { Identity } from '../types/identity';
 type Props = {
   identity: Identity;
   onBack: () => void;
+  onOpenEvent: (event: EventPayload) => void;
 };
 
-export const HistoryScreen: React.FC<Props> = ({ identity, onBack }) => {
+export const HistoryScreen: React.FC<Props> = ({ identity, onBack, onOpenEvent }) => {
   const pubkey = useMemo(
     () => CryptoService.encodePublicKeyBase58(identity.publicKey),
     [identity.publicKey],
@@ -32,17 +33,31 @@ export const HistoryScreen: React.FC<Props> = ({ identity, onBack }) => {
       {events.length === 0 ? (
         <Text style={styles.empty}>No signed events on this phone yet.</Text>
       ) : (
-        events.map(event => (
-          <View key={event.eventId} style={styles.card}>
-            <Text style={styles.type}>{event.eventType}</Text>
-            <Text style={styles.amount}>{event.payload.credits} credits</Text>
-            <Text style={styles.meta}>
-              {new Date(event.createdAtLocal).toLocaleString()} •{' '}
-              {event.synced ? 'synced' : 'pending sync'}
-            </Text>
-            <Text style={styles.hash}>Hash {event.eventHash.slice(0, 24)}...</Text>
-          </View>
-        ))
+        events.map(event => {
+          const redeem = event.eventType === 'REDEEM';
+          const color = redeem ? '#C62828' : '#2E7D32';
+          return (
+            <TouchableOpacity
+              key={event.eventId}
+              style={styles.card}
+              onPress={() => onOpenEvent(event)}
+            >
+              <View style={[styles.dot, { backgroundColor: color }]} />
+              <Text style={[styles.type, { color }]}>{event.eventType}</Text>
+              <Text style={[styles.amount, { color }]}>
+                {redeem ? '-' : '+'}
+                {event.payload.credits} credits
+              </Text>
+              <Text style={styles.meta}>
+                {new Date(event.createdAtLocal).toLocaleString()}
+                {event.payload.plantId ? ` • ${event.payload.plantId}` : ''}
+              </Text>
+              <Text style={styles.hash}>
+                {event.synced ? 'synced' : 'pending sync'} · {event.eventHash.slice(0, 18)}...
+              </Text>
+            </TouchableOpacity>
+          );
+        })
       )}
       <TouchableOpacity style={styles.secondaryBtn} onPress={onBack}>
         <Text style={styles.secondaryBtnText}>Back</Text>
@@ -56,8 +71,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '800', color: '#111', marginBottom: 16 },
   empty: { color: '#555', backgroundColor: '#FFF', borderRadius: 10, padding: 16 },
   card: { backgroundColor: '#FFF', borderRadius: 10, padding: 14, marginBottom: 10 },
-  type: { color: '#555', fontWeight: '700' },
-  amount: { color: '#111', fontWeight: '900', fontSize: 24, marginTop: 4 },
+  dot: { width: 10, height: 10, borderRadius: 5, marginBottom: 6 },
+  type: { fontWeight: '800' },
+  amount: { fontWeight: '900', fontSize: 24, marginTop: 4 },
   meta: { color: '#555', marginTop: 4 },
   hash: { color: '#777', marginTop: 6, fontSize: 12 },
   secondaryBtn: { paddingVertical: 15, alignItems: 'center' },
