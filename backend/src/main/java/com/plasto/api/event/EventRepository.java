@@ -45,4 +45,6 @@ public interface EventRepository extends JpaRepository<EventRecord, UUID> {
 		long startInclusive,
 		long endExclusive
 	);
+
+	List<EventRecord> findByCustomerPubkey(String customerPubkey);
 }

@@ -61,6 +61,7 @@ public class EventSyncService {
 		Map<String, String> latestHashByOperator = new HashMap<>();
 		Map<String, Long> creditsByOperator = new HashMap<>();
 		Map<String, String> plantByOperator = new HashMap<>();
+		Map<String, Long> remainingByCustomer = new HashMap<>();
 		Set<String> photoHashesInBatch = new HashSet<>();
 
 		for (SyncEventRequest event : request.events()) {
@@ -83,6 +84,7 @@ public class EventSyncService {
 			validateSignatures(event);
 			validatePhotoHashes(event, photoHashesInBatch);
 			validateHashChain(event, latestHashByOperator);
+			validateRedeemBalance(event, remainingByCustomer);
 
 			long credits = creditsIssued(event);
 			if (credits > 0) {
@@ -199,11 +201,59 @@ public class EventSyncService {
 
 	private static final long MAX_CREDITS_PER_EVENT = 1_000_000L;
 
+	private void validateRedeemBalance(SyncEventRequest event, Map<String, Long> remainingByCustomer) {
+		String pk = event.customerPubkey();
+		if (pk == null || pk.isBlank()) {
+			return;
+		}
+		String type = event.eventType().toUpperCase();
+		long credits = payloadCredits(event);
+		long have = remainingByCustomer.computeIfAbsent(pk, this::balanceOnDisk);
+		if ("DEPOSIT".equals(type) || "ADJUST".equals(type)) {
+			remainingByCustomer.put(pk, have + credits);
+			return;
+		}
+		if (!"REDEEM".equals(type)) {
+			return;
+		}
+		if (credits <= 0) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "redeem amount must be positive");
+		}
+		if (credits > have) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "insufficient customer balance");
+		}
+		remainingByCustomer.put(pk, have - credits);
+	}
+
+	private long balanceOnDisk(String pubkey) {
+		long bal = 0;
+		for (EventRecord e : eventRepository.findByCustomerPubkey(pubkey)) {
+			long c = 0;
+			try {
+				JsonNode json = objectMapper.readTree(e.getPayloadJson());
+				c = firstLong(json, "credits", "creditAmount", "credit_amount", "amount_credits");
+			} catch (Exception ignored) {
+				c = 0;
+			}
+			String t = e.getEventType() == null ? "" : e.getEventType().toUpperCase();
+			if ("DEPOSIT".equals(t) || "ADJUST".equals(t)) {
+				bal += c;
+			} else if ("REDEEM".equals(t)) {
+				bal -= c;
+			}
+		}
+		return bal;
+	}
+
 	private long creditsIssued(SyncEventRequest event) {
 		String type = event.eventType().toUpperCase();
 		if (!"DEPOSIT".equals(type) && !"ADJUST".equals(type)) {
 			return 0;
 		}
+		return payloadCredits(event);
+	}
+
+	private long payloadCredits(SyncEventRequest event) {
 		try {
 			JsonNode json = objectMapper.readTree(event.payloadJson());
 			long credits = firstLong(json, "credits", "creditAmount", "credit_amount", "amount_credits");

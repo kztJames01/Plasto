@@ -180,6 +180,27 @@ public class PhotoStorageService {
 		return upload;
 	}
 
+	public byte[] readUploaded(String hash) {
+		String normalized = hash.toLowerCase(Locale.ROOT);
+		if (!isValidSha256Hex(normalized)) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "hash must be a SHA-256 hex digest");
+		}
+		PhotoUpload upload = repository.findById(normalized)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "photo not found"));
+		if (!upload.isUploaded()) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "photo not uploaded");
+		}
+		Path stored = localStore.resolve(upload.getPhotoHash() + ".bin").normalize();
+		if (!stored.startsWith(localStore) || !Files.isRegularFile(stored)) {
+			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "photo file missing");
+		}
+		try {
+			return Files.readAllBytes(stored);
+		} catch (Exception ex) {
+			throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "failed to read photo");
+		}
+	}
+
 	private void validateEventOwnership(UUID eventId, String hash) {
 		if (eventId == null) {
 			return;
