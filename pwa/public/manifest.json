@@ -1,0 +1,9 @@
+{
+  "name": "Plasto Wallet",
+  "short_name": "Plasto",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F7F7",
+  "theme_color": "#0A7AFF",
+  "description": "Read-only Plasto credit wallet"
+}

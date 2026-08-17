@@ -1,0 +1,39 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f7f7f7;
+  color: #111;
+}
+.wrap { max-width: 520px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 28px; margin: 0 0 8px; }
+.sub { color: #666; margin-bottom: 18px; }
+.card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.bal { background: #111; color: #fff; border-radius: 14px; padding: 22px; text-align: center; }
+.bal b { display: block; font-size: 48px; }
+textarea {
+  width: 100%;
+  min-height: 90px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  padding: 10px;
+  font-size: 16px;
+}
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  background: #0a7aff;
+  color: #fff;
+}
+.warn { background: #fff3cd; color: #856404; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+.err { color: #b00020; margin-top: 8px; }
+.row { display: flex; justify-content: space-between; gap: 8px; }
+.dep { color: #2e7d32; font-weight: 800; }
+.red { color: #c62828; font-weight: 800; }
+.meta { color: #666; font-size: 13px; margin-top: 4px; }
+.pub { word-break: break-all; font-family: ui-monospace, monospace; font-size: 12px; color: #555; }
