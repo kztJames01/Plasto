@@ -115,4 +115,14 @@ export class PhotoEvidenceService {
     const db = await getDatabase();
     db.execute(`UPDATE photo_evidence SET uploaded = 1 WHERE photo_hash = ?`, [hash]);
   }
+
+  static async getLocalUri(hash: string): Promise<string | null> {
+    const db = await getDatabase();
+    const row = db.execute(
+      `SELECT local_uri FROM photo_evidence WHERE photo_hash = ? LIMIT 1`,
+      [hash],
+    ).rows?._array?.[0];
+    const uri = row?.local_uri ? String(row.local_uri) : '';
+    return uri || null;
+  }
 }

@@ -7,6 +7,7 @@ import { SyncService } from '../services/SyncService';
 
 type Props = {
   onNewDeposit: () => void;
+  onRedeem: () => void;
   onFinalize: () => void;
   onSync: () => void;
   onRefresh: () => Promise<void>;
@@ -14,6 +15,7 @@ type Props = {
 
 export const OperatorDashboardScreen: React.FC<Props> = ({
   onNewDeposit,
+  onRedeem,
   onFinalize,
   onSync,
   onRefresh,
@@ -71,6 +73,9 @@ export const OperatorDashboardScreen: React.FC<Props> = ({
 
       <TouchableOpacity style={styles.primaryBtn} onPress={onNewDeposit}>
         <Text style={styles.primaryBtnText}>New deposit</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.primaryBtn} onPress={onRedeem}>
+        <Text style={styles.primaryBtnText}>Scan customer redeem</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.primaryBtn} onPress={onFinalize}>
         <Text style={styles.primaryBtnText}>Finalize customer signature</Text>

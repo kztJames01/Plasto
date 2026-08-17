@@ -222,6 +222,11 @@ export class EventStore {
     return (result.rows?._array ?? []).map(EventStore.rowToEvent);
   }
 
+  static async getLatestCustomerEvent(pubkey: string): Promise<EventPayload | null> {
+    const rows = await EventStore.getEventsForCustomer(pubkey);
+    return rows[0] ?? null;
+  }
+
   static async getEventsForOperator(pubkey: string): Promise<EventPayload[]> {
     const db = await getDatabase();
     const result = db.execute(

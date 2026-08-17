@@ -28,8 +28,11 @@ import { DepositFlowScreen } from './src/screens/DepositFlowScreen';
 import { HistoryScreen } from './src/screens/HistoryScreen';
 import { OperatorDashboardScreen } from './src/screens/OperatorDashboardScreen';
 import { OperatorFinalizeScreen } from './src/screens/OperatorFinalizeScreen';
+import { OperatorRedeemScreen } from './src/screens/OperatorRedeemScreen';
 import { RedeemScreen } from './src/screens/RedeemScreen';
 import { SyncDashboardScreen } from './src/screens/SyncDashboardScreen';
+import { TransactionDetailScreen } from './src/screens/TransactionDetailScreen';
+import { EventPayload } from './src/types/events';
 
 type AppState =
   | { type: 'loading' }
@@ -41,9 +44,11 @@ type AppState =
   | { type: 'home'; identity: Identity }
   | { type: 'customer_review'; identity: Identity }
   | { type: 'customer_history'; identity: Identity }
+  | { type: 'customer_detail'; identity: Identity; event: EventPayload }
   | { type: 'redeem'; identity: Identity }
   | { type: 'operator_home' }
   | { type: 'operator_deposit' }
+  | { type: 'operator_redeem' }
   | { type: 'operator_finalize' }
   | { type: 'operator_sync' };
 
@@ -219,6 +224,19 @@ function App() {
           <HistoryScreen
             identity={state.identity}
             onBack={() => setState({ type: 'home', identity: state.identity })}
+            onOpenEvent={event =>
+              setState({ type: 'customer_detail', identity: state.identity, event })
+            }
+          />
+        );
+
+      case 'customer_detail':
+        return (
+          <TransactionDetailScreen
+            event={state.event}
+            onBack={() =>
+              setState({ type: 'customer_history', identity: state.identity })
+            }
           />
         );
 
@@ -234,6 +252,7 @@ function App() {
         return (
           <OperatorDashboardScreen
             onNewDeposit={() => setState({ type: 'operator_deposit' })}
+            onRedeem={() => setState({ type: 'operator_redeem' })}
             onFinalize={() => setState({ type: 'operator_finalize' })}
             onSync={() => setState({ type: 'operator_sync' })}
             onRefresh={boot}
@@ -242,6 +261,9 @@ function App() {
 
       case 'operator_deposit':
         return <DepositFlowScreen onBack={() => setState({ type: 'operator_home' })} />;
+
+      case 'operator_redeem':
+        return <OperatorRedeemScreen onBack={() => setState({ type: 'operator_home' })} />;
 
       case 'operator_finalize':
         return (
