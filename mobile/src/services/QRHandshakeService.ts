@@ -1,6 +1,13 @@
 import { Buffer } from 'buffer';
 
-import { CustomerSignedResponse, DepositProposal, QRPacket, QRPacketKind } from '../types/events';
+import {
+  CustomerSignedResponse,
+  DepositProposal,
+  QRPacket,
+  QRPacketKind,
+  RedeemIntent,
+  RedeemProposal,
+} from '../types/events';
 
 const PREFIX = 'PLASTO:QR:';
 const VERSION = 1 as const;
@@ -96,5 +103,21 @@ export class QRHandshakeService {
 
   static decodeResponse(rawPackets: string[]) {
     return unpackObject<CustomerSignedResponse>('response', rawPackets);
+  }
+
+  static redeemIntentToPackets(intent: RedeemIntent): string[] {
+    return packObject('redeem_intent', intent.eventId, intent);
+  }
+
+  static decodeRedeemIntent(rawPackets: string[]) {
+    return unpackObject<RedeemIntent>('redeem_intent', rawPackets);
+  }
+
+  static redeemProposalToPackets(proposal: RedeemProposal): string[] {
+    return packObject('proposal', proposal.eventId, proposal);
+  }
+
+  static decodeRedeemProposal(rawPackets: string[]) {
+    return unpackObject<RedeemProposal>('proposal', rawPackets);
   }
 }

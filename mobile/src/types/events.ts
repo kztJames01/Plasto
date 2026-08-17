@@ -71,7 +71,33 @@ export interface CustomerSignedResponse {
   acceptedAtLocal: number;
 }
 
-export type QRPacketKind = 'proposal' | 'response';
+export interface RedeemIntent {
+  type: 'PLASTO_REDEEM_INTENT';
+  eventId: string;
+  customerPubkey: string;
+  credits: number;
+  createdAtLocal: number;
+  customerIntentSig: string;
+}
+
+export interface RedeemProposal {
+  eventId: string;
+  eventType: 'REDEEM';
+  plantId: string;
+  customerPubkey: string;
+  operatorPubkey: string;
+  credits: number;
+  notes?: string;
+  payloadJson: string;
+  photoHashes: string[];
+  photoHashesJson: string;
+  previousHash: string | null;
+  eventHash: string;
+  createdAtLocal: number;
+  operatorSig: string;
+}
+
+export type QRPacketKind = 'proposal' | 'response' | 'redeem_intent';
 
 export interface QRPacket {
   v: 1;
