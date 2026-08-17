@@ -33,3 +33,6 @@ ml/models/*
 ml/reports/
 ml/.mpl-cache/
 ml/__pycache__/
+pwa/node_modules/
+pwa/dist/
+backend/.gradle-home/
