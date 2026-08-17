@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { entropyToMnemonic, mnemonicToEntropy, validateMnemonic } from 'bip39';
+import { entropyToMnemonic, mnemonicToSeedSync, validateMnemonic } from 'bip39';
 import { Buffer } from 'buffer';
 import { Identity } from '../types/identity';
 
@@ -57,26 +57,18 @@ export class CryptoService {
   }
 
   static generateIdentity(): Identity {
-    const keypair = nacl.sign.keyPair();
     const entropy = nacl.randomBytes(16);
     const mnemonic = entropyToMnemonic(Buffer.from(entropy).toString('hex'));
-
-    return {
-      publicKey: keypair.publicKey,
-      secretKey: keypair.secretKey,
-      mnemonic,
-    };
+    return CryptoService.deriveFromMnemonic(mnemonic);
   }
 
   static deriveFromMnemonic(mnemonic: string): Identity {
     if (!validateMnemonic(mnemonic)) {
       throw new Error('Invalid mnemonic');
     }
-
-    const entropyHex = mnemonicToEntropy(mnemonic);
-    const seed = Buffer.from(entropyHex, 'hex');
-    const keypair = nacl.sign.keyPair.fromSeed(seed.slice(0, 32));
-
+    // 12-word entropy is 16 bytes; Ed25519 seed needs 32. BIP39 seed is 64.
+    const seed = mnemonicToSeedSync(mnemonic).subarray(0, 32);
+    const keypair = nacl.sign.keyPair.fromSeed(seed);
     return {
       publicKey: keypair.publicKey,
       secretKey: keypair.secretKey,
