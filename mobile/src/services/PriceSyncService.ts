@@ -1,7 +1,6 @@
+import { API_BASE } from '../config/api';
 import { getDatabase } from '../database/Database';
 import { PlasticClass } from '../types/events';
-
-const API_BASE = 'http://localhost:8080/api/v1';
 
 type PriceRow = {
   class: PlasticClass;

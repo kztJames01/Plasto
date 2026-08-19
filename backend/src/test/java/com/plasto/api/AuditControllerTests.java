@@ -31,7 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class Epic6AuditControllerTests {
+class AuditControllerTests {
 
 	@Autowired MockMvc mvc;
 	@Autowired ObjectMapper objectMapper;
@@ -50,6 +50,14 @@ class Epic6AuditControllerTests {
 		for (byte[] body : PHOTO_BODIES) {
 			uploadPhoto(sha256Bytes(body), body);
 		}
+	}
+
+	@Test
+	void anchorRequiresAdminSignature() throws Exception {
+		mvc.perform(post("/api/v1/audit/anchor")
+				.param("plantId", PLANT_ID)
+				.param("day", "2023-11-15"))
+			.andExpect(status().isUnauthorized());
 	}
 
 	@Test
@@ -75,9 +83,15 @@ class Epic6AuditControllerTests {
 			.atZone(java.time.ZoneOffset.UTC)
 			.toLocalDate()
 			.toString();
+		String anchorSig = sign(
+			ADMIN_KEYPAIR,
+			"PLASTO_ANCHOR|" + PLANT_ID + "|" + day + "|" + ADMIN_PUBKEY
+		);
 		mvc.perform(post("/api/v1/audit/anchor")
 				.param("plantId", PLANT_ID)
-				.param("day", day))
+				.param("day", day)
+				.param("adminPubkey", ADMIN_PUBKEY)
+				.param("adminSig", anchorSig))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.plantId").value(PLANT_ID))
 			.andExpect(jsonPath("$.rootHash").isString())

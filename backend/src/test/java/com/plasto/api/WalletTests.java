@@ -32,7 +32,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class Epic7WalletTests {
+class WalletTests {
 
 	@Autowired MockMvc mvc;
 	@Autowired ObjectMapper objectMapper;

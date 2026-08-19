@@ -31,7 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class Epic5ControllerTests {
+class ControllerTests {
 
 	@Autowired MockMvc mvc;
 	@Autowired ObjectMapper objectMapper;
