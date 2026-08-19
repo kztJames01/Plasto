@@ -1,0 +1,39 @@
+# Local stack for manual testing. Neon is still the prod target (Epic 8).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: plasto
+      POSTGRES_PASSWORD: plasto
+      POSTGRES_DB: plasto
+    ports:
+      - "5432:5432"
+    volumes:
+      - plasto_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plasto -d plasto"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: default
+      DATABASE_URL: jdbc:postgresql://db:5432/plasto?sslmode=disable
+      DATABASE_USER: plasto
+      DATABASE_PASSWORD: plasto
+      PHOTO_SIGNING_KEY: local-docker-signing-key-32b-min!!
+      PHOTO_UPLOAD_BASE_URL: http://localhost:8080/local-photo-upload
+      PHOTO_LOCAL_STORE: /tmp/photo-uploads
+      PLASTO_CORS_ORIGINS: "*"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  plasto_pg:
