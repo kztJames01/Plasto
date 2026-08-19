@@ -3,6 +3,7 @@ package com.plasto.api.web;
 import java.io.IOException;
 import java.util.Map;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/local-photo-upload")
+@Profile("!prod")
 public class PhotoUploadController {
 
 	private final PhotoStorageService storageService;

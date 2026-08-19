@@ -21,6 +21,7 @@ spring:
 
 server:
   port: ${PORT:8080}
+  address: ${SERVER_ADDRESS:0.0.0.0}
 
 management:
   endpoints:
@@ -29,6 +30,8 @@ management:
         include: health,info
 
 plasto:
+  cors:
+    allowed-origins: ${PLASTO_CORS_ORIGINS:*}
   photos:
     upload-base-url: ${PHOTO_UPLOAD_BASE_URL:http://localhost:8080/local-photo-upload}
     signing-key: ${PHOTO_SIGNING_KEY:dev-only-signing-key-replace-in-prod-32b}
