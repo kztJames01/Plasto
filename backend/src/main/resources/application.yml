@@ -29,6 +29,13 @@ management:
       exposure:
         include: health,info
 
+# Empty SENTRY_DSN = SDK off (local dev). Set in prod/staging.
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:local}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}
+
 plasto:
   cors:
     allowed-origins: ${PLASTO_CORS_ORIGINS:*}

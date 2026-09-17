@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
+import io.sentry.Sentry;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -54,6 +56,7 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(Exception.class)
 	public ResponseEntity<ApiErrorBody> fallback(Exception ex) {
 		log.error("unhandled", ex);
+		Sentry.captureException(ex);
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
 			.body(new ApiErrorBody("INTERNAL", "something broke", null));
 	}

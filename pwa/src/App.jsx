@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { keysFromMnemonic, signUtf8 } from './crypto.js';
 import { loadCache, parseEvent, photoUrl, pullEvents, recoverHint, saveCache, sumBalance } from './api.js';
+import { reportError } from './monitoring.js';
 
 export default function App() {
   const cached = useMemo(() => loadCache(), []);
@@ -32,6 +33,7 @@ export default function App() {
       setHint(rec.event_count != null ? `${rec.event_count} cloud events` : '');
       setPhrase('');
     } catch (err) {
+      reportError(err, { area: 'wallet', phase: 'lookup' });
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       secret = null;

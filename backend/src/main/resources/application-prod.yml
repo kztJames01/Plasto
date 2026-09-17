@@ -7,6 +7,9 @@ server:
   address: 0.0.0.0
   port: ${PORT:8080}
 
+sentry:
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.1}
+
 plasto:
   cors:
     allowed-origins: ${PLASTO_CORS_ORIGINS:}

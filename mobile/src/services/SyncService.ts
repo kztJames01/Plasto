@@ -2,6 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { Buffer } from 'buffer';
 
 import { API_BASE } from '../config/api';
+import { reportError } from '../config/monitoring';
 import { EventPayload } from '../types/events';
 import { CryptoService } from './CryptoService';
 import { EventStore } from './EventStore';
@@ -260,6 +261,7 @@ export class SyncService {
     try {
       return await SyncService.syncAll();
     } catch (err) {
+      reportError(err, { area: 'sync', phase: 'autoSync' });
       if (__DEV__) {
         console.warn('auto sync failed', err);
       }

@@ -31,6 +31,7 @@ services:
       PHOTO_UPLOAD_BASE_URL: http://localhost:8080/local-photo-upload
       PHOTO_LOCAL_STORE: /tmp/photo-uploads
       PLASTO_CORS_ORIGINS: "*"
+      SENTRY_DSN: ""
     depends_on:
       db:
         condition: service_healthy
