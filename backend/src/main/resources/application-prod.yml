@@ -1,0 +1,19 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+server:
+  address: 0.0.0.0
+  port: ${PORT:8080}
+
+sentry:
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.1}
+
+plasto:
+  cors:
+    allowed-origins: ${PLASTO_CORS_ORIGINS:}
+  photos:
+    upload-base-url: ${PHOTO_UPLOAD_BASE_URL:}
+    signing-key: ${PHOTO_SIGNING_KEY:}
+    local-store: ${PHOTO_LOCAL_STORE:/tmp/photo-uploads}

@@ -1,0 +1,28 @@
+# Render blueprint — Epic 8 setup scaffold. Fill secrets in the dashboard.
+services:
+  - type: web
+    name: plasto-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USER
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: PHOTO_SIGNING_KEY
+        generateValue: true
+      - key: PHOTO_UPLOAD_BASE_URL
+        sync: false
+      - key: PLASTO_CORS_ORIGINS
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production

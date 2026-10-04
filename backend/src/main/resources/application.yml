@@ -2,7 +2,8 @@ spring:
   application:
     name: plasto-api
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:5432/plasto?sslmode=prefer}
+    # Neon requires SSL. Override DATABASE_URL for local Postgres without TLS.
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:5432/plasto?sslmode=require}
     username: ${DATABASE_USER:plasto}
     password: ${DATABASE_PASSWORD:plasto}
     hikari:
@@ -20,9 +21,25 @@ spring:
 
 server:
   port: ${PORT:8080}
+  address: ${SERVER_ADDRESS:0.0.0.0}
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+# Empty SENTRY_DSN = SDK off (local dev). Set in prod/staging.
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:local}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}
+
+plasto:
+  cors:
+    allowed-origins: ${PLASTO_CORS_ORIGINS:*}
+  photos:
+    upload-base-url: ${PHOTO_UPLOAD_BASE_URL:http://localhost:8080/local-photo-upload}
+    signing-key: ${PHOTO_SIGNING_KEY:dev-only-signing-key-replace-in-prod-32b}
+    local-store: ${PHOTO_LOCAL_STORE:./data/photo-uploads}
